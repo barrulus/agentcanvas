@@ -7,14 +7,15 @@ import { debouncedSaveLayout } from '@/shared/state/canvasSlice'
 export function Canvas() {
   const cards = useSelector((s: RootState) => s.canvas.cards)
   const connections = useSelector((s: RootState) => s.canvas.connections)
+  const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (Object.keys(cards).length > 0) {
-      debouncedSaveLayout(cards)
+      debouncedSaveLayout(currentDashboardId, cards)
     }
-  }, [cards])
+  }, [cards, currentDashboardId])
 
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)

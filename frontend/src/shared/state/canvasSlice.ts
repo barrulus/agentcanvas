@@ -1,16 +1,31 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit'
 
-export const loadLayout = createAsyncThunk('canvas/loadLayout', async () => {
-  const res = await fetch('/api/layout')
+export const fetchDashboards = createAsyncThunk('canvas/fetchDashboards', async () => {
+  const res = await fetch('/api/dashboards')
   const data = await res.json()
-  return data.cards as Record<string, CardPosition>
+  return data.dashboards
+})
+
+export const createDashboard = createAsyncThunk('canvas/createDashboard', async (name: string) => {
+  const res = await fetch('/api/dashboards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  return await res.json()
+})
+
+export const loadLayout = createAsyncThunk('canvas/loadLayout', async (dashboardId: string) => {
+  const res = await fetch(`/api/dashboards/${dashboardId}/layout`)
+  const data = await res.json()
+  return { dashboardId, cards: data.cards as Record<string, CardPosition> }
 })
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-export function debouncedSaveLayout(cards: Record<string, CardPosition>) {
+export function debouncedSaveLayout(dashboardId: string, cards: Record<string, CardPosition>) {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
-    fetch('/api/layout', {
+    fetch(`/api/dashboards/${dashboardId}/layout`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cards }),
@@ -32,11 +47,20 @@ interface Connection {
   to: string
 }
 
+interface Dashboard {
+  id: string
+  name: string
+  card_count: number
+  created_at: number
+}
+
 interface CanvasState {
   cards: Record<string, CardPosition>
   connections: Connection[]
   nextZOrder: number
   selectedCards: string[]
+  currentDashboardId: string
+  dashboards: Dashboard[]
 }
 
 const initialState: CanvasState = {
@@ -44,6 +68,8 @@ const initialState: CanvasState = {
   connections: [],
   nextZOrder: 1,
   selectedCards: [],
+  currentDashboardId: 'default',
+  dashboards: [],
 }
 
 const GRID_GAP = 24
@@ -126,15 +152,27 @@ const canvasSlice = createSlice({
     setSelected(state, action: PayloadAction<string[]>) {
       state.selectedCards = action.payload
     },
+    switchDashboard(state, action: PayloadAction<string>) {
+      state.currentDashboardId = action.payload
+      state.cards = {}
+      state.connections = []
+      state.selectedCards = []
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(loadLayout.fulfilled, (state, action) => {
-      state.cards = action.payload
-      const maxZ = Object.values(action.payload).reduce((m, c) => Math.max(m, c.zOrder || 0), 0)
+      state.cards = action.payload.cards
+      const maxZ = Object.values(action.payload.cards).reduce((m, c) => Math.max(m, c.zOrder || 0), 0)
       state.nextZOrder = maxZ + 1
+    })
+    builder.addCase(fetchDashboards.fulfilled, (state, action) => {
+      state.dashboards = action.payload
+    })
+    builder.addCase(createDashboard.fulfilled, (state, action) => {
+      state.dashboards.push(action.payload)
     })
   },
 })
 
-export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, addConnection, setSelected } = canvasSlice.actions
+export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, addConnection, setSelected, switchDashboard } = canvasSlice.actions
 export const canvasReducer = canvasSlice.reducer

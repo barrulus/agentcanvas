@@ -1,9 +1,11 @@
-"""JSON file persistence for sessions and dashboard layout."""
+"""JSON file persistence for sessions and dashboards."""
 
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from backend.agents.models import AgentSession, CardPosition
 
@@ -23,8 +25,10 @@ def _sessions_dir() -> Path:
     return d
 
 
-def _layout_path() -> Path:
-    return _data_dir() / "layout.json"
+def _dashboards_dir() -> Path:
+    d = _data_dir() / "dashboards"
+    d.mkdir(exist_ok=True)
+    return d
 
 
 # --- Sessions ---
@@ -60,20 +64,122 @@ def delete_session_file(session_id: str) -> None:
     path.unlink(missing_ok=True)
 
 
-# --- Layout ---
+# --- Dashboards ---
 
-def save_layout(cards: dict[str, CardPosition]) -> None:
-    data = {sid: card.model_dump() for sid, card in cards.items()}
-    _layout_path().write_text(json.dumps(data, indent=2))
+def _migrate_old_layout() -> None:
+    """Migrate old single layout.json to dashboards/default.json if it exists."""
+    old_path = _data_dir() / "layout.json"
+    if old_path.exists() and not list(_dashboards_dir().glob("*.json")):
+        try:
+            old_data = json.loads(old_path.read_text())
+            dashboard = {
+                "id": "default",
+                "name": "Default",
+                "cards": old_data,  # old format was just the cards dict
+                "created_at": datetime.now().timestamp(),
+            }
+            (_dashboards_dir() / "default.json").write_text(json.dumps(dashboard, indent=2))
+            old_path.rename(old_path.with_suffix(".json.bak"))
+            logger.info("Migrated layout.json to dashboards/default.json")
+        except Exception:
+            logger.warning("Failed to migrate old layout.json")
 
 
-def load_layout() -> dict[str, CardPosition]:
-    path = _layout_path()
+def list_dashboards() -> list[dict]:
+    """Return list of dashboard metadata (id, name, card_count, created_at)."""
+    _migrate_old_layout()
+    dashboards = []
+    for path in _dashboards_dir().glob("*.json"):
+        try:
+            data = json.loads(path.read_text())
+            dashboards.append({
+                "id": data["id"],
+                "name": data.get("name", "Untitled"),
+                "card_count": len(data.get("cards", {})),
+                "created_at": data.get("created_at", 0),
+            })
+        except Exception:
+            logger.warning("Skipping corrupt dashboard file %s", path.name)
+    dashboards.sort(key=lambda d: d["created_at"])
+    return dashboards
+
+
+def create_dashboard(name: str = "New Canvas") -> dict:
+    """Create a new empty dashboard and return its full data."""
+    dashboard_id = uuid4().hex
+    dashboard = {
+        "id": dashboard_id,
+        "name": name,
+        "cards": {},
+        "created_at": datetime.now().timestamp(),
+    }
+    path = _dashboards_dir() / f"{dashboard_id}.json"
+    path.write_text(json.dumps(dashboard, indent=2))
+    return dashboard
+
+
+def get_dashboard(dashboard_id: str) -> dict | None:
+    """Load a dashboard by ID, returning full data including cards."""
+    _migrate_old_layout()
+    path = _dashboards_dir() / f"{dashboard_id}.json"
     if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        logger.warning("Failed to load dashboard %s", dashboard_id)
+        return None
+
+
+def update_dashboard(dashboard_id: str, updates: dict) -> dict | None:
+    """Update dashboard fields (name, cards)."""
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
+        return None
+    dashboard.update(updates)
+    dashboard["id"] = dashboard_id  # prevent id change
+    path = _dashboards_dir() / f"{dashboard_id}.json"
+    path.write_text(json.dumps(dashboard, indent=2))
+    return dashboard
+
+
+def delete_dashboard(dashboard_id: str) -> None:
+    path = _dashboards_dir() / f"{dashboard_id}.json"
+    path.unlink(missing_ok=True)
+
+
+def save_dashboard_layout(dashboard_id: str, cards: dict[str, CardPosition]) -> None:
+    """Save just the cards portion of a dashboard."""
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
+        # Auto-create if doesn't exist
+        dashboard = {
+            "id": dashboard_id,
+            "name": "Canvas",
+            "cards": {},
+            "created_at": datetime.now().timestamp(),
+        }
+    dashboard["cards"] = {sid: card.model_dump() for sid, card in cards.items()}
+    path = _dashboards_dir() / f"{dashboard_id}.json"
+    path.write_text(json.dumps(dashboard, indent=2))
+
+
+def load_dashboard_layout(dashboard_id: str) -> dict[str, CardPosition]:
+    """Load cards from a specific dashboard."""
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
         return {}
     try:
-        data = json.loads(path.read_text())
-        return {sid: CardPosition.model_validate(card) for sid, card in data.items()}
+        return {sid: CardPosition.model_validate(card) for sid, card in dashboard.get("cards", {}).items()}
     except Exception:
-        logger.warning("Failed to load layout")
+        logger.warning("Failed to load layout for dashboard %s", dashboard_id)
         return {}
+
+
+# Keep old functions as aliases for backward compatibility during migration
+def save_layout(cards: dict[str, CardPosition]) -> None:
+    save_dashboard_layout("default", cards)
+
+def load_layout() -> dict[str, CardPosition]:
+    _migrate_old_layout()
+    return load_dashboard_layout("default")

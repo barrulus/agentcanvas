@@ -168,7 +168,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
         <button
           onClick={(e) => {
             e.stopPropagation()
-            fetch(`/api/sessions/${card.session_id}`, { method: 'DELETE' })
+            fetch(`/api/sessions/${card.session_id}/close`, { method: 'POST' })
             dispatch(removeCard(card.session_id))
             dispatch(removeSession(card.session_id))
           }}

@@ -31,15 +31,25 @@ interface AgentSession {
 interface AgentsState {
   sessions: Record<string, AgentSession>
   providers: Array<{ id: string; name: string; manages_own_tools: boolean }>
+  history: AgentSession[]
 }
 
 const initialState: AgentsState = {
   sessions: {},
   providers: [],
+  history: [],
 }
 
-export const fetchSessions = createAsyncThunk('agents/fetchSessions', async () => {
-  const res = await fetch('/api/sessions')
+export const fetchSessions = createAsyncThunk('agents/fetchSessions', async (dashboardId?: string) => {
+  const url = dashboardId ? `/api/sessions?dashboard_id=${dashboardId}` : '/api/sessions'
+  const res = await fetch(url)
+  const data = await res.json()
+  return data.sessions as AgentSession[]
+})
+
+export const fetchHistory = createAsyncThunk('agents/fetchHistory', async (search?: string) => {
+  const url = search ? `/api/sessions/history?search=${encodeURIComponent(search)}` : '/api/sessions/history'
+  const res = await fetch(url)
   const data = await res.json()
   return data.sessions as AgentSession[]
 })
@@ -155,6 +165,9 @@ const agentsSlice = createSlice({
       for (const s of action.payload) {
         state.sessions[s.id] = { ...s, streamingMessage: null }
       }
+    })
+    builder.addCase(fetchHistory.fulfilled, (state, action) => {
+      state.history = action.payload
     })
   },
 })

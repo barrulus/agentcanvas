@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 
 from backend.agents.models import AgentSession, Message
 from backend.agents.ws_manager import ws_manager
@@ -278,8 +279,51 @@ class AgentManager:
     def get_session(self, session_id: str) -> AgentSession | None:
         return self.sessions.get(session_id)
 
-    def list_sessions(self) -> list[AgentSession]:
-        return list(self.sessions.values())
+    def list_sessions(self, dashboard_id: str | None = None, include_closed: bool = False) -> list[AgentSession]:
+        sessions = list(self.sessions.values())
+        if dashboard_id:
+            sessions = [s for s in sessions if s.dashboard_id == dashboard_id]
+        if not include_closed:
+            sessions = [s for s in sessions if s.closed_at is None]
+        return sessions
+
+    async def close_session(self, session_id: str) -> None:
+        session = self.sessions.get(session_id)
+        if not session:
+            return
+        # Stop if running
+        await self.stop_session(session_id)
+        session.closed_at = datetime.now().timestamp()
+        save_session(session)
+        await ws_manager.send_to_session(
+            session_id, "agent:status",
+            {"session_id": session_id, "status": "closed", "session": session.model_dump()},
+        )
+
+    def list_closed_sessions(self, search: str = "") -> list[AgentSession]:
+        closed = [s for s in self.sessions.values() if s.closed_at is not None]
+        if search:
+            search_lower = search.lower()
+            closed = [s for s in closed if (
+                search_lower in s.name.lower() or
+                any(search_lower in str(m.content).lower() for m in s.messages)
+            )]
+        closed.sort(key=lambda s: s.closed_at or 0, reverse=True)
+        return closed
+
+    async def reopen_session(self, session_id: str, dashboard_id: str | None = None) -> AgentSession | None:
+        session = self.sessions.get(session_id)
+        if not session:
+            return None
+        session.closed_at = None
+        if dashboard_id:
+            session.dashboard_id = dashboard_id
+        save_session(session)
+        await ws_manager.broadcast_dashboard(
+            "agent:status",
+            {"session_id": session.id, "status": session.status, "session": session.model_dump()},
+        )
+        return session
 
     async def delete_session(self, session_id: str) -> None:
         await self.stop_session(session_id)
@@ -303,6 +347,10 @@ class AgentManager:
             cwd=None,
         )
         session.parent_session_id = parent_session_id
+        if parent_session_id:
+            parent = self.sessions.get(parent_session_id)
+            if parent and parent.dashboard_id:
+                session.dashboard_id = parent.dashboard_id
         save_session(session)
 
         # Notify canvas of parent-child relationship

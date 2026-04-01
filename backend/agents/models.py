@@ -30,6 +30,7 @@ class AgentSession(BaseModel):
     parent_session_id: Optional[str] = None
     cwd: Optional[str] = None
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+    closed_at: Optional[float] = None
 
 
 class CardPosition(BaseModel):

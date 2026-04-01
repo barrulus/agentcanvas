@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
-import { placeCard, loadLayout, addConnection } from '@/shared/state/canvasSlice'
+import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard } from '@/shared/state/canvasSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 
-export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
+export function Toolbar({ onOpenSettings, onOpenHistory }: { onOpenSettings?: () => void; onOpenHistory?: () => void }) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
+  const dashboards = useSelector((s: RootState) => s.canvas.dashboards)
+  const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
   const [showDialog, setShowDialog] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
@@ -17,9 +19,22 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
 
   useEffect(() => {
     dispatch(fetchProviders())
-    dispatch(fetchSessions())
-    dispatch(loadLayout())
     wsManager.connect()
+
+    // Load dashboards, then load layout + sessions for current dashboard
+    dispatch(fetchDashboards()).then((result) => {
+      const dbs = result.payload as Array<{ id: string; name: string; card_count: number; created_at: number }>
+      if (!dbs || dbs.length === 0) {
+        // Create a default dashboard if none exist
+        dispatch(createDashboard('Default')).then(() => {
+          dispatch(loadLayout('default'))
+          dispatch(fetchSessions('default'))
+        })
+      } else {
+        dispatch(loadLayout(currentDashboardId))
+        dispatch(fetchSessions(currentDashboardId))
+      }
+    })
   }, [dispatch])
 
   // Rebuild connections from parent_session_id whenever sessions change
@@ -44,13 +59,28 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
     const result = await dispatch(createSession({
       provider_id: selectedProvider,
       model: selectedModel,
-    })).unwrap()
+      dashboard_id: currentDashboardId,
+    } as any)).unwrap()
 
     dispatch(placeCard({ sessionId: result.id }))
     wsManager.sendMessage(result.id, prompt)
 
     setShowDialog(false)
     setPrompt('')
+  }
+
+  const handleSwitchDashboard = (dashboardId: string) => {
+    if (dashboardId === currentDashboardId) return
+    dispatch(switchDashboard(dashboardId))
+    dispatch(loadLayout(dashboardId))
+    dispatch(fetchSessions(dashboardId))
+  }
+
+  const handleNewDashboard = async () => {
+    const name = window.prompt('Dashboard name:')
+    if (!name?.trim()) return
+    const result = await dispatch(createDashboard(name.trim())).unwrap()
+    handleSwitchDashboard(result.id)
   }
 
   return (
@@ -68,7 +98,65 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
         AgentCanvas
       </span>
 
+      {/* Dashboard tabs */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 12 }}>
+        {dashboards.map(db => (
+          <button
+            key={db.id}
+            onClick={() => handleSwitchDashboard(db.id)}
+            style={{
+              padding: '4px 10px',
+              background: 'transparent',
+              color: db.id === currentDashboardId ? '#e0e0e0' : '#666',
+              border: 'none',
+              borderBottom: db.id === currentDashboardId ? '2px solid #4fc3f7' : '2px solid transparent',
+              borderRadius: 0,
+              fontSize: 12,
+              cursor: 'pointer',
+              fontWeight: db.id === currentDashboardId ? 600 : 400,
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+          >
+            {db.name}
+          </button>
+        ))}
+        <button
+          onClick={handleNewDashboard}
+          style={{
+            padding: '4px 6px',
+            background: 'transparent',
+            color: '#555',
+            border: '1px solid #333',
+            borderRadius: 4,
+            fontSize: 12,
+            cursor: 'pointer',
+            lineHeight: 1,
+            marginLeft: 4,
+          }}
+          title="New dashboard"
+        >
+          +
+        </button>
+      </div>
+
       <span style={{ flex: 1 }} />
+
+      <button
+        onClick={onOpenHistory}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#888',
+          border: '1px solid #333',
+          borderRadius: 6,
+          fontSize: 15,
+          cursor: 'pointer',
+          lineHeight: 1,
+        }}
+        title="Session history"
+      >
+        &#128339;
+      </button>
 
       <button
         onClick={onOpenSettings}

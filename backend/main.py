@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from backend.agents.agent_manager import agent_manager
 from backend.agents.ws_manager import ws_manager
 from backend.providers.registry import get_provider, get_registry, get_tool_executor, init_providers, list_providers
-from backend.sessions.store import save_layout, load_layout
+from backend.sessions.store import save_layout, load_layout  # noqa: F401 - kept for backward compat
 from backend.agents.models import CardPosition
 from backend.mcp.models import MCPServerConfig
 from backend.mcp import permissions as mcp_permissions
@@ -83,8 +83,15 @@ async def create_session(request: Request):
 
 
 @app.get("/api/sessions")
-async def list_sessions():
-    return {"sessions": [s.model_dump() for s in agent_manager.list_sessions()]}
+async def list_sessions(dashboard_id: str = ""):
+    sessions = agent_manager.list_sessions(dashboard_id=dashboard_id or None)
+    return {"sessions": [s.model_dump() for s in sessions]}
+
+
+@app.get("/api/sessions/history")
+async def session_history(search: str = ""):
+    sessions = agent_manager.list_closed_sessions(search=search)
+    return {"sessions": [s.model_dump() for s in sessions]}
 
 
 @app.get("/api/sessions/{session_id}")
@@ -194,20 +201,80 @@ async def set_permissions(request: Request):
     return {"ok": True}
 
 
-# --- Layout ---
+# --- Session Close / Reopen ---
 
 
-@app.get("/api/layout")
-async def get_layout():
-    cards = load_layout()
+@app.post("/api/sessions/{session_id}/close")
+async def close_session(session_id: str):
+    await agent_manager.close_session(session_id)
+    return {"ok": True}
+
+
+@app.post("/api/sessions/{session_id}/reopen")
+async def reopen_session(session_id: str, request: Request):
+    body = await request.json()
+    session = await agent_manager.reopen_session(session_id, dashboard_id=body.get("dashboard_id"))
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return session.model_dump()
+
+
+# --- Dashboards ---
+
+
+@app.get("/api/dashboards")
+async def get_dashboards():
+    from backend.sessions.store import list_dashboards
+    return {"dashboards": list_dashboards()}
+
+
+@app.post("/api/dashboards")
+async def create_new_dashboard(request: Request):
+    from backend.sessions.store import create_dashboard
+    body = await request.json()
+    dashboard = create_dashboard(body.get("name", "New Canvas"))
+    return dashboard
+
+
+@app.get("/api/dashboards/{dashboard_id}")
+async def get_dashboard_detail(dashboard_id: str):
+    from backend.sessions.store import get_dashboard
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return dashboard
+
+
+@app.put("/api/dashboards/{dashboard_id}")
+async def update_dashboard_detail(dashboard_id: str, request: Request):
+    from backend.sessions.store import update_dashboard
+    body = await request.json()
+    dashboard = update_dashboard(dashboard_id, body)
+    if not dashboard:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return dashboard
+
+
+@app.delete("/api/dashboards/{dashboard_id}")
+async def delete_dashboard_endpoint(dashboard_id: str):
+    from backend.sessions.store import delete_dashboard
+    delete_dashboard(dashboard_id)
+    return {"ok": True}
+
+
+@app.get("/api/dashboards/{dashboard_id}/layout")
+async def get_dashboard_layout(dashboard_id: str):
+    from backend.sessions.store import load_dashboard_layout
+    cards = load_dashboard_layout(dashboard_id)
     return {"cards": {sid: c.model_dump() for sid, c in cards.items()}}
 
 
-@app.put("/api/layout")
-async def put_layout(request: Request):
+@app.put("/api/dashboards/{dashboard_id}/layout")
+async def save_dashboard_layout_endpoint(dashboard_id: str, request: Request):
+    from backend.sessions.store import save_dashboard_layout
     body = await request.json()
     cards = {sid: CardPosition.model_validate(c) for sid, c in body.get("cards", {}).items()}
-    save_layout(cards)
+    save_dashboard_layout(dashboard_id, cards)
     return {"ok": True}
 
 
