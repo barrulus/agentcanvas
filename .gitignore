@@ -1,0 +1,8 @@
+node_modules
+.venv
+__pycache__
+dist
+backend/data/sessions/*
+backend/data/dashboards/*
+!backend/data/sessions/.gitkeep
+!backend/data/dashboards/.gitkeep
