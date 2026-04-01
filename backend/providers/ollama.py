@@ -1,7 +1,6 @@
 import json
 import logging
-import os
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 import httpx
@@ -15,37 +14,10 @@ from backend.providers.base import (
     TurnComplete,
 )
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from backend.mcp.tool_executor import ToolExecutor
 
-INVOKE_AGENT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "invoke_agent",
-        "description": (
-            "Invoke a sub-agent to handle a task. The sub-agent runs to completion "
-            "and returns its response. Use this to delegate work to specialized agents. "
-            "Available providers: 'ollama' (local LLM), 'claude-code' (Claude)."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "provider_id": {
-                    "type": "string",
-                    "description": "Provider: 'ollama' or 'claude-code'",
-                },
-                "model": {
-                    "type": "string",
-                    "description": "Model name (e.g. 'qwen3:4b' for ollama, 'haiku' for claude-code)",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "The task/message to send to the sub-agent",
-                },
-            },
-            "required": ["provider_id", "model", "message"],
-        },
-    },
-}
+logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(AgentProvider):
@@ -53,9 +25,14 @@ class OllamaProvider(AgentProvider):
     display_name = "Ollama"
     manages_own_tools = False
 
-    def __init__(self, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        tool_executor: "ToolExecutor | None" = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self._sessions: dict[str, dict] = {}
+        self._tool_executor = tool_executor
 
     async def start_session(
         self,
@@ -81,22 +58,30 @@ class OllamaProvider(AgentProvider):
 
         state["messages"].append({"role": "user", "content": content})
 
-        # Run the agentic loop: LLM call -> tool calls -> LLM call -> ...
-        for iteration in range(10):  # max 10 tool-call rounds
+        # Get available tools from executor (MCP servers + built-ins)
+        tools = []
+        if self._tool_executor:
+            tools = await self._tool_executor.get_available_tools()
+
+        # Agentic loop: LLM call -> tool calls -> LLM call -> ...
+        for _ in range(10):
             message_id = uuid4().hex
             assistant_text = ""
             tool_calls_accum: list[dict] = []
+
+            request_body: dict = {
+                "model": state["model"],
+                "messages": state["messages"],
+                "stream": True,
+            }
+            if tools:
+                request_body["tools"] = tools
 
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/v1/chat/completions",
-                    json={
-                        "model": state["model"],
-                        "messages": state["messages"],
-                        "stream": True,
-                        "tools": [INVOKE_AGENT_TOOL],
-                    },
+                    json=request_body,
                 ) as response:
                     response.raise_for_status()
 
@@ -117,7 +102,6 @@ class OllamaProvider(AgentProvider):
                             continue
 
                         delta = choices[0].get("delta", {})
-                        finish_reason = choices[0].get("finish_reason")
 
                         # Text content
                         text = delta.get("content")
@@ -176,42 +160,23 @@ class OllamaProvider(AgentProvider):
                     arguments=args,
                 )
 
-                # Execute invoke_agent via backend HTTP
-                if tc["name"] == "invoke_agent":
-                    result_text = await self._execute_invoke_agent(args, session_id)
+                # Execute via ToolExecutor (handles MCP servers + invoke_agent)
+                if self._tool_executor:
+                    result_text = await self._tool_executor.execute_tool(
+                        tc["name"], args,
+                        parent_session_id=session_id,
+                        session_id=session_id,
+                    )
                 else:
-                    result_text = f"Unknown tool: {tc['name']}"
+                    result_text = f"No tool executor configured for: {tc['name']}"
 
-                # Add tool result to conversation
                 state["messages"].append({
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "content": result_text,
                 })
 
-            # Continue the loop — LLM will see tool results and continue
-
         yield TurnComplete(stop_reason="max_iterations")
-
-    async def _execute_invoke_agent(self, args: dict, parent_session_id: str) -> str:
-        backend_port = os.environ.get("AGENTCANVAS_PORT", "8325")
-        backend_url = f"http://127.0.0.1:{backend_port}"
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-                resp = await client.post(
-                    f"{backend_url}/api/agents/invoke",
-                    json={
-                        "provider_id": args.get("provider_id", "ollama"),
-                        "model": args.get("model", ""),
-                        "message": args.get("message", ""),
-                        "parent_session_id": parent_session_id,
-                    },
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                return f"Sub-agent response (cost: ${result.get('cost_usd', 0):.4f}):\n\n{result.get('response', '')}"
-        except Exception as e:
-            return f"Error invoking agent: {e}"
 
     async def stop_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)

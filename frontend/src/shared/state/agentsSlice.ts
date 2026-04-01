@@ -21,6 +21,11 @@ interface AgentSession {
   created_at: number
   parent_session_id?: string | null
   streamingMessage: { id: string; role: string; content: string; tool_name?: string } | null
+  pendingApproval?: {
+    approvalId: string
+    toolName: string
+    arguments: any
+  } | null
 }
 
 interface AgentsState {
@@ -122,6 +127,22 @@ const agentsSlice = createSlice({
     removeSession(state, action: PayloadAction<string>) {
       delete state.sessions[action.payload]
     },
+    setApprovalRequest(state, action: PayloadAction<{ sessionId: string; approvalId: string; toolName: string; arguments: any }>) {
+      const s = state.sessions[action.payload.sessionId]
+      if (s) {
+        s.pendingApproval = {
+          approvalId: action.payload.approvalId,
+          toolName: action.payload.toolName,
+          arguments: action.payload.arguments,
+        }
+      }
+    },
+    clearApprovalRequest(state, action: PayloadAction<string>) {
+      const s = state.sessions[action.payload]
+      if (s) {
+        s.pendingApproval = null
+      }
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(fetchProviders.fulfilled, (state, action) => {
@@ -138,5 +159,5 @@ const agentsSlice = createSlice({
   },
 })
 
-export const { setSession, updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, removeSession } = agentsSlice.actions
+export const { setSession, updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, removeSession, setApprovalRequest, clearApprovalRequest } = agentsSlice.actions
 export const agentsReducer = agentsSlice.reducer

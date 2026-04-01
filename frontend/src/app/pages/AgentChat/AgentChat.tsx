@@ -1,11 +1,14 @@
 import { useRef, useEffect, useState } from 'react'
-import { useSelector } from 'react-redux'
-import { RootState } from '@/shared/state/store'
+import { useSelector, useDispatch } from 'react-redux'
+import { RootState, AppDispatch } from '@/shared/state/store'
+import { clearApprovalRequest } from '@/shared/state/agentsSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
+import { ApprovalBar } from './ApprovalBar'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 export function AgentChat({ sessionId }: { sessionId: string }) {
+  const dispatch = useDispatch<AppDispatch>()
   const session = useSelector((s: RootState) => s.agents.sessions[sessionId])
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -26,6 +29,21 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {session.pendingApproval && (
+        <ApprovalBar
+          approvalId={session.pendingApproval.approvalId}
+          toolName={session.pendingApproval.toolName}
+          arguments={session.pendingApproval.arguments}
+          onApprove={() => {
+            wsManager.sendApprovalResponse(session.pendingApproval!.approvalId, true)
+            dispatch(clearApprovalRequest(sessionId))
+          }}
+          onDeny={() => {
+            wsManager.sendApprovalResponse(session.pendingApproval!.approvalId, false)
+            dispatch(clearApprovalRequest(sessionId))
+          }}
+        />
+      )}
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '8px 12px' }}>
         {session.messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />

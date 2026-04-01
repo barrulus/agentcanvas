@@ -5,7 +5,7 @@ import { createSession, fetchProviders, fetchSessions } from '@/shared/state/age
 import { placeCard, loadLayout, addConnection } from '@/shared/state/canvasSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 
-export function Toolbar() {
+export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
@@ -69,6 +69,23 @@ export function Toolbar() {
       </span>
 
       <span style={{ flex: 1 }} />
+
+      <button
+        onClick={onOpenSettings}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#888',
+          border: '1px solid #333',
+          borderRadius: 6,
+          fontSize: 16,
+          cursor: 'pointer',
+          lineHeight: 1,
+        }}
+        title="Settings"
+      >
+        ⚙
+      </button>
 
       <button
         onClick={() => setShowDialog(true)}

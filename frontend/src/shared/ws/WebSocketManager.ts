@@ -1,5 +1,5 @@
 import { store } from '../state/store'
-import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession } from '../state/agentsSlice'
+import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession, setApprovalRequest } from '../state/agentsSlice'
 import { placeCard, addConnection } from '../state/canvasSlice'
 
 class WebSocketManager {
@@ -70,6 +70,15 @@ class WebSocketManager {
         }))
         break
 
+      case 'agent:approval_request':
+        store.dispatch(setApprovalRequest({
+          sessionId: data.session_id || session_id,
+          approvalId: data.approval_id,
+          toolName: data.tool_name,
+          arguments: data.arguments,
+        }))
+        break
+
       case 'agent:spawned': {
         const sid = data.session_id
         const parentSid = data.parent_session_id
@@ -119,6 +128,10 @@ class WebSocketManager {
 
   sendMessage(sessionId: string, content: string) {
     this.send('agent:send_message', { session_id: sessionId, content })
+  }
+
+  sendApprovalResponse(approvalId: string, approved: boolean) {
+    this.send('agent:approval_response', { approval_id: approvalId, approved })
   }
 }
 

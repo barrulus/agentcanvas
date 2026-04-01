@@ -43,8 +43,10 @@ class ClaudeCodeProvider(AgentProvider):
     display_name = "Claude Code"
     manages_own_tools = True
 
-    def __init__(self) -> None:
+    def __init__(self, registry: "MCPRegistry | None" = None) -> None:
+        from backend.mcp.registry import MCPRegistry
         self._sessions: dict[str, _SessionState] = {}
+        self._registry: MCPRegistry | None = registry
 
     async def start_session(
         self,
@@ -68,8 +70,12 @@ class ClaudeCodeProvider(AgentProvider):
             "claude", "-p",
             "--output-format", "stream-json",
             "--verbose", "--include-partial-messages",
-            "--allowedTools", "mcp__agentcanvas__invoke_agent",
         ]
+
+        # Build allowed tools list from all enabled MCP servers
+        allowed_tools = self._get_allowed_tools()
+        if allowed_tools:
+            cmd.extend(["--allowedTools"] + allowed_tools)
 
         if state.model:
             cmd.extend(["--model", state.model])
@@ -226,23 +232,54 @@ class ClaudeCodeProvider(AgentProvider):
     send_message.__doc__ = AgentProvider.send_message.__doc__  # type: ignore[attr-defined]
 
     def _build_mcp_config(self, session_id: str) -> str:
-        """Create a temporary MCP config JSON file for the invoke_agent server."""
+        """Create a temporary MCP config JSON file with all enabled MCP servers."""
+        mcp_servers: dict[str, dict] = {}
+
+        # Built-in: agentcanvas invoke_agent server
         server_script = Path(__file__).parent.parent / "mcp" / "invoke_agent_server.py"
-        if not server_script.exists():
+        if server_script.exists():
+            mcp_servers["agentcanvas"] = {
+                "command": sys.executable,
+                "args": [str(server_script)],
+            }
+
+        # Add all enabled user-configured stdio MCP servers
+        if self._registry:
+            from backend.mcp.registry import _sanitize_name
+            for server in self._registry.get_enabled_servers():
+                if server.transport == "stdio" and server.command:
+                    name = _sanitize_name(server.name)
+                    entry: dict = {
+                        "command": server.command,
+                        "args": server.args,
+                    }
+                    if server.env:
+                        entry["env"] = server.env
+                    mcp_servers[name] = entry
+
+        if not mcp_servers:
             return ""
 
-        config = {
-            "mcpServers": {
-                "agentcanvas": {
-                    "command": sys.executable,
-                    "args": [str(server_script)],
-                }
-            }
-        }
-
+        config = {"mcpServers": mcp_servers}
         config_path = Path(tempfile.gettempdir()) / f"agentcanvas-mcp-{session_id}.json"
         config_path.write_text(json.dumps(config))
         return str(config_path)
+
+    def _get_allowed_tools(self) -> list[str]:
+        """Build list of tools to pass to --allowedTools."""
+        from backend.mcp.permissions import get_policy
+
+        allowed = ["mcp__agentcanvas__invoke_agent"]
+
+        if self._registry:
+            from backend.mcp.registry import _sanitize_name
+            for tool in self._registry.get_all_tools():
+                claude_name = f"mcp__{tool.server_name}__{tool.name}"
+                policy = get_policy(tool.qualified_name)
+                if policy == "always_allow":
+                    allowed.append(claude_name)
+
+        return allowed
 
     async def stop_session(self, session_id: str) -> None:
         state = self._sessions.pop(session_id, None)
