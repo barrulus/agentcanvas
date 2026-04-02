@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { useSelector } from 'react-redux'
+import { AnimatePresence } from 'framer-motion'
 import { RootState } from '@/shared/state/store'
 import { AgentCard } from './AgentCard'
 import { debouncedSaveLayout } from '@/shared/state/canvasSlice'
@@ -23,7 +24,33 @@ export function Canvas() {
   const isPanning = useRef(false)
   const lastMouse = useRef({ x: 0, y: 0 })
 
-  const clampZoom = (z: number) => Math.min(3, Math.max(0.15, z))
+  const clampZoom = useCallback((z: number) => Math.min(3, Math.max(0.15, z)), [])
+
+  const handleFitToView = useCallback(() => {
+    const cardList = Object.values(cards)
+    if (cardList.length === 0) return
+    const vEl = viewportRef.current
+    if (!vEl) return
+    const vw = vEl.clientWidth
+    const vh = vEl.clientHeight
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const c of cardList) {
+      minX = Math.min(minX, c.x)
+      minY = Math.min(minY, c.y)
+      maxX = Math.max(maxX, c.x + c.width)
+      maxY = Math.max(maxY, c.y + c.height)
+    }
+
+    const pad = 40
+    const scaleX = (vw - pad * 2) / (maxX - minX)
+    const scaleY = (vh - pad * 2) / (maxY - minY)
+    const newZoom = Math.min(3, Math.max(0.15, Math.min(scaleX, scaleY)))
+
+    setZoom(newZoom)
+    setPanX(-minX * newZoom + pad)
+    setPanY(-minY * newZoom + pad)
+  }, [cards])
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (e.altKey) {
@@ -36,7 +63,7 @@ export function Canvas() {
       setPanX(x => x - e.deltaX)
       setPanY(y => y - e.deltaY)
     }
-  }, [])
+  }, [clampZoom])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 1 || (e.button === 0 && e.target === viewportRef.current)) {
@@ -95,9 +122,11 @@ export function Canvas() {
           left: 0,
         }}
       >
-        {Object.values(cards).map(card => (
-          <AgentCard key={card.session_id} card={card} />
-        ))}
+        <AnimatePresence>
+          {Object.values(cards).map(card => (
+            <AgentCard key={card.session_id} card={card} />
+          ))}
+        </AnimatePresence>
 
         {/* Connection lines — rendered AFTER cards so they appear on top */}
         <svg style={{ position: 'absolute', top: 0, left: 0, width: 1, height: 1, pointerEvents: 'none', overflow: 'visible', zIndex: 999999 }}>
@@ -187,6 +216,27 @@ export function Canvas() {
           })}
         </svg>
       </div>
+
+      {/* Zoom controls */}
+      <div style={{
+        position: 'absolute', bottom: 16, right: 16,
+        display: 'flex', alignItems: 'center', gap: 4,
+        background: '#1a1a2ecc', border: '1px solid #333',
+        borderRadius: 8, padding: '4px 8px', zIndex: 100,
+      }}>
+        <button onClick={() => setZoom(z => clampZoom(z / 1.2))} style={zoomBtnStyle} title="Zoom out">-</button>
+        <span style={{ fontSize: 11, color: '#888', minWidth: 40, textAlign: 'center', userSelect: 'none' }}>
+          {Math.round(zoom * 100)}%
+        </span>
+        <button onClick={() => setZoom(z => clampZoom(z * 1.2))} style={zoomBtnStyle} title="Zoom in">+</button>
+        <button onClick={handleFitToView} style={{ ...zoomBtnStyle, fontSize: 11, padding: '4px 8px', width: 'auto' }} title="Fit all cards in view">Fit</button>
+      </div>
     </div>
   )
+}
+
+const zoomBtnStyle: React.CSSProperties = {
+  background: '#2a2a3e', color: '#ccc', border: '1px solid #444',
+  borderRadius: 4, width: 28, height: 28, fontSize: 16, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
 }

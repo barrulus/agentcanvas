@@ -18,6 +18,16 @@ from backend.sessions.store import save_session, load_all_sessions, delete_sessi
 logger = logging.getLogger(__name__)
 
 
+def generate_session_name(content: str, max_words: int = 6, max_chars: int = 50) -> str:
+    """Generate a session name from the first message content."""
+    text = content.strip().split('\n')[0].strip()
+    words = text.split()[:max_words]
+    name = ' '.join(words)
+    if len(name) > max_chars:
+        name = name[:max_chars].rsplit(' ', 1)[0] + '...'
+    return name or "Agent"
+
+
 class AgentManager:
     def __init__(self) -> None:
         self.sessions: dict[str, AgentSession] = {}
@@ -69,6 +79,15 @@ class AgentManager:
             "agent:message",
             {"session_id": session_id, "message": user_msg.model_dump()},
         )
+
+        # Auto-name session from first message
+        if session.name in ("Agent", "Sub-agent", "") and len([m for m in session.messages if m.role == "user"]) == 1:
+            session.name = generate_session_name(content)
+            save_session(session)
+            await ws_manager.broadcast_dashboard(
+                "agent:status",
+                {"session_id": session_id, "status": session.status, "session": session.model_dump()},
+            )
 
         # Run agent in background task
         task = asyncio.create_task(self._run_agent(session_id, content))

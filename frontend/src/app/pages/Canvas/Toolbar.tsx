@@ -5,13 +5,22 @@ import { createSession, fetchProviders, fetchSessions } from '@/shared/state/age
 import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard } from '@/shared/state/canvasSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 
-export function Toolbar({ onOpenSettings, onOpenHistory }: { onOpenSettings?: () => void; onOpenHistory?: () => void }) {
+interface ToolbarProps {
+  onOpenSettings?: () => void
+  onOpenHistory?: () => void
+  showDialog?: boolean
+  setShowDialog?: (v: boolean) => void
+}
+
+export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogProp, setShowDialog: setShowDialogProp }: ToolbarProps) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
   const dashboards = useSelector((s: RootState) => s.canvas.dashboards)
   const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
-  const [showDialog, setShowDialog] = useState(false)
+  const [showDialogInternal, setShowDialogInternal] = useState(false)
+  const showDialog = showDialogProp ?? showDialogInternal
+  const setShowDialog = setShowDialogProp ?? setShowDialogInternal
   const [selectedProvider, setSelectedProvider] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [selectedModel, setSelectedModel] = useState('')

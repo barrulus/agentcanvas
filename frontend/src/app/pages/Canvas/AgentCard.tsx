@@ -1,9 +1,11 @@
 import { useRef, useState, useCallback } from 'react'
+import { motion } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
 import { moveCard, resizeCard, bringToFront, removeCard } from '@/shared/state/canvasSlice'
 import { removeSession } from '@/shared/state/agentsSlice'
 import { AgentChat } from '../AgentChat/AgentChat'
+import { wsManager } from '@/shared/ws/WebSocketManager'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -93,7 +95,11 @@ export function AgentCard({ card }: { card: CardPosition }) {
   const h = expanded ? Math.max(card.height, 500) : card.height
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       style={{
         position: 'absolute',
         left: card.x,
@@ -164,6 +170,24 @@ export function AgentCard({ card }: { card: CardPosition }) {
           {session.messages.length} msgs
         </span>
 
+        {/* Stop button */}
+        {session.status === 'running' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              wsManager.stopAgent(card.session_id)
+            }}
+            style={{
+              background: 'none', border: '1px solid #ef535055', color: '#ef5350',
+              cursor: 'pointer', fontSize: 11, padding: '2px 8px', borderRadius: 4,
+              fontWeight: 600,
+            }}
+            title="Stop agent"
+          >
+            Stop
+          </button>
+        )}
+
         {/* Close button */}
         <button
           onClick={(e) => {
@@ -213,7 +237,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
           }}
         />
       ))}
-    </div>
+    </motion.div>
   )
 }
 

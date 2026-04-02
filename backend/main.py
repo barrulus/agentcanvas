@@ -296,6 +296,8 @@ async def ws_dashboard(websocket: WebSocket):
                     payload["session_id"],
                     payload["content"],
                 )
+            elif event == "agent:stop":
+                await agent_manager.stop_session(payload["session_id"])
             elif event == "agent:approval_response":
                 executor = get_tool_executor()
                 executor.resolve_approval(

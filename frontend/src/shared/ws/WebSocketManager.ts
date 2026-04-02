@@ -130,6 +130,10 @@ class WebSocketManager {
     this.send('agent:send_message', { session_id: sessionId, content })
   }
 
+  stopAgent(sessionId: string) {
+    this.send('agent:stop', { session_id: sessionId })
+  }
+
   sendApprovalResponse(approvalId: string, approved: boolean) {
     this.send('agent:approval_response', { approval_id: approvalId, approved })
   }
