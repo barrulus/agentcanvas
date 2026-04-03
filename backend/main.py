@@ -78,6 +78,7 @@ async def create_session(request: Request):
         system_prompt=body.get("system_prompt"),
         dashboard_id=body.get("dashboard_id"),
         cwd=body.get("cwd"),
+        mode_id=body.get("mode_id"),
     )
     return session.model_dump()
 
@@ -112,6 +113,58 @@ async def delete_session(session_id: str):
 async def stop_session(session_id: str):
     await agent_manager.stop_session(session_id)
     return {"ok": True}
+
+
+# --- Branching ---
+
+
+@app.post("/api/sessions/{session_id}/branch")
+async def branch_session(session_id: str, request: Request):
+    body = await request.json()
+    branch_id = await agent_manager.branch_message(
+        session_id, body["fork_after_message_id"], body["content"],
+    )
+    return {"branch_id": branch_id}
+
+
+@app.post("/api/sessions/{session_id}/switch-branch")
+async def switch_branch(session_id: str, request: Request):
+    body = await request.json()
+    await agent_manager.switch_branch(session_id, body["branch_id"])
+    return {"ok": True}
+
+
+@app.get("/api/sessions/{session_id}/branches")
+async def list_branches(session_id: str):
+    session = agent_manager.get_session(session_id)
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"branches": {k: v.model_dump() for k, v in session.branches.items()}, "active_branch_id": session.active_branch_id}
+
+
+# --- Git Worktree ---
+
+
+@app.get("/api/sessions/{session_id}/diff")
+async def session_diff(session_id: str):
+    session = agent_manager.get_session(session_id)
+    if not session or not session.worktree_path:
+        return JSONResponse({"error": "No worktree"}, status_code=404)
+    from backend.git.worktree_manager import WorktreeManager
+    wt = WorktreeManager()
+    diff = await wt.get_diff(session.worktree_path)
+    return {"diff": diff}
+
+
+@app.get("/api/sessions/{session_id}/git-status")
+async def session_git_status(session_id: str):
+    session = agent_manager.get_session(session_id)
+    if not session or not session.worktree_path:
+        return JSONResponse({"error": "No worktree"}, status_code=404)
+    from backend.git.worktree_manager import WorktreeManager
+    wt = WorktreeManager()
+    status = await wt.get_status(session.worktree_path)
+    return {"status": status}
 
 
 # --- Invoke Agent ---
@@ -275,6 +328,115 @@ async def save_dashboard_layout_endpoint(dashboard_id: str, request: Request):
     body = await request.json()
     cards = {sid: CardPosition.model_validate(c) for sid, c in body.get("cards", {}).items()}
     save_dashboard_layout(dashboard_id, cards)
+    return {"ok": True}
+
+
+# --- Templates ---
+
+
+@app.get("/api/templates")
+async def list_templates():
+    from backend.templates.store import load_all_templates
+    return {"templates": [t.model_dump() for t in load_all_templates()]}
+
+
+@app.post("/api/templates")
+async def create_template(request: Request):
+    from backend.templates.models import PromptTemplate
+    from backend.templates.store import save_template
+    body = await request.json()
+    template = PromptTemplate(**body)
+    save_template(template)
+    return template.model_dump()
+
+
+@app.get("/api/templates/by-slug/{slug}")
+async def get_template_by_slug(slug: str):
+    from backend.templates.store import load_template_by_slug
+    t = load_template_by_slug(slug)
+    if not t:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return t.model_dump()
+
+
+@app.get("/api/templates/{template_id}")
+async def get_template(template_id: str):
+    from backend.templates.store import load_template
+    t = load_template(template_id)
+    if not t:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return t.model_dump()
+
+
+@app.put("/api/templates/{template_id}")
+async def update_template(template_id: str, request: Request):
+    from backend.templates.models import PromptTemplate
+    from backend.templates.store import load_template, save_template
+    existing = load_template(template_id)
+    if not existing:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await request.json()
+    updated = existing.model_copy(update=body)
+    updated.id = template_id
+    save_template(updated)
+    return updated.model_dump()
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template_endpoint(template_id: str):
+    from backend.templates.store import delete_template
+    delete_template(template_id)
+    return {"ok": True}
+
+
+# --- Modes ---
+
+
+@app.get("/api/modes")
+async def list_modes():
+    from backend.modes.store import get_all_modes
+    return {"modes": [m.model_dump() for m in get_all_modes()]}
+
+
+@app.post("/api/modes")
+async def create_mode(request: Request):
+    from backend.modes.models import AgentMode
+    from backend.modes.store import save_mode
+    body = await request.json()
+    mode = AgentMode(**body)
+    save_mode(mode)
+    return mode.model_dump()
+
+
+@app.get("/api/modes/{mode_id}")
+async def get_mode(mode_id: str):
+    from backend.modes.store import get_mode as _get_mode
+    m = _get_mode(mode_id)
+    if not m:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return m.model_dump()
+
+
+@app.put("/api/modes/{mode_id}")
+async def update_mode(mode_id: str, request: Request):
+    from backend.modes.models import AgentMode
+    from backend.modes.store import get_mode as _get_mode, save_mode
+    existing = _get_mode(mode_id)
+    if not existing:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if existing.is_builtin:
+        return JSONResponse({"error": "Cannot modify built-in mode"}, status_code=400)
+    body = await request.json()
+    updated = existing.model_copy(update=body)
+    updated.id = mode_id
+    save_mode(updated)
+    return updated.model_dump()
+
+
+@app.delete("/api/modes/{mode_id}")
+async def delete_mode_endpoint(mode_id: str):
+    from backend.modes.store import delete_mode
+    delete_mode(mode_id)
     return {"ok": True}
 
 

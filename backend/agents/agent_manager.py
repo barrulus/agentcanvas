@@ -1,8 +1,9 @@
 import asyncio
 import logging
 from datetime import datetime
+from uuid import uuid4
 
-from backend.agents.models import AgentSession, Message
+from backend.agents.models import AgentSession, BranchInfo, Message
 from backend.agents.ws_manager import ws_manager
 from backend.providers.base import (
     CostUpdate,
@@ -41,19 +42,47 @@ class AgentManager:
         system_prompt: str | None = None,
         dashboard_id: str | None = None,
         cwd: str | None = None,
+        mode_id: str | None = None,
     ) -> AgentSession:
+        # Apply mode settings
+        effective_system_prompt = system_prompt
+        if mode_id:
+            from backend.modes.store import get_mode
+            mode = get_mode(mode_id)
+            if mode and mode.system_prompt:
+                if effective_system_prompt:
+                    effective_system_prompt = f"{effective_system_prompt}\n\n{mode.system_prompt}"
+                else:
+                    effective_system_prompt = mode.system_prompt
+
+        # Git worktree isolation
+        worktree_path = None
+        repo_path = None
+        effective_cwd = cwd
+        if cwd:
+            from backend.git.worktree_manager import WorktreeManager
+            wt = WorktreeManager()
+            worktree = await wt.create_worktree(cwd)
+            if worktree:
+                repo_path = cwd
+                worktree_path = worktree
+                effective_cwd = worktree
+
         session = AgentSession(
             provider_id=provider_id,
             model=model,
             name=name or "Agent",
-            system_prompt=system_prompt,
+            system_prompt=effective_system_prompt,
             dashboard_id=dashboard_id,
-            cwd=cwd,
+            cwd=effective_cwd,
+            mode_id=mode_id,
+            worktree_path=worktree_path,
+            repo_path=repo_path,
         )
         self.sessions[session.id] = session
 
         provider = get_provider(provider_id)
-        await provider.start_session(session.id, model, system_prompt, cwd)
+        await provider.start_session(session.id, model, effective_system_prompt, effective_cwd)
 
         save_session(session)
         await ws_manager.broadcast_dashboard(
@@ -345,9 +374,116 @@ class AgentManager:
         return session
 
     async def delete_session(self, session_id: str) -> None:
+        session = self.sessions.get(session_id)
         await self.stop_session(session_id)
+        # Clean up worktree
+        if session and session.worktree_path:
+            try:
+                from backend.git.worktree_manager import WorktreeManager
+                wt = WorktreeManager()
+                await wt.remove_worktree(session.worktree_path, session.repo_path)
+            except Exception:
+                logger.warning("Failed to remove worktree for session %s", session_id)
         self.sessions.pop(session_id, None)
         delete_session_file(session_id)
+
+    # --- Message Branching ---
+
+    def get_branch_messages(self, session: AgentSession, branch_id: str | None = None) -> list[Message]:
+        """Get ordered messages for a specific branch by walking the parent_id chain."""
+        if not session.branches:
+            return session.messages  # No branches — return flat list
+
+        target_branch = branch_id or session.active_branch_id
+        if not target_branch:
+            return session.messages
+
+        # Find the branch info to get the fork chain
+        branch = session.branches.get(target_branch)
+        if not branch:
+            return session.messages
+
+        # Collect branch IDs from root to target
+        branch_chain: list[str] = []
+        current = target_branch
+        while current:
+            branch_chain.append(current)
+            b = session.branches.get(current)
+            current = b.parent_branch_id if b else None
+        branch_chain.reverse()
+
+        # Get messages: first those with no branch_id (pre-branch), then those on the chain
+        result: list[Message] = []
+        for msg in session.messages:
+            if msg.branch_id is None or msg.branch_id in branch_chain:
+                result.append(msg)
+
+        return result
+
+    async def branch_message(
+        self, session_id: str, fork_after_message_id: str, new_content: str
+    ) -> str:
+        """Fork the conversation after the given message and send a new user message."""
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        # Create a new branch
+        branch_id = uuid4().hex
+        parent_branch = session.active_branch_id
+
+        session.branches[branch_id] = BranchInfo(
+            id=branch_id,
+            parent_branch_id=parent_branch,
+            fork_message_id=fork_after_message_id,
+        )
+        session.active_branch_id = branch_id
+
+        # Create the new user message on this branch
+        user_msg = Message(
+            role="user",
+            content=new_content,
+            parent_id=fork_after_message_id,
+            branch_id=branch_id,
+        )
+        session.messages.append(user_msg)
+        save_session(session)
+
+        await ws_manager.send_to_session(
+            session_id, "agent:branch_created",
+            {"session_id": session_id, "branch_id": branch_id, "session": session.model_dump()},
+        )
+        await ws_manager.send_to_session(
+            session_id, "agent:message",
+            {"session_id": session_id, "message": user_msg.model_dump()},
+        )
+
+        # Auto-name if needed
+        if session.name in ("Agent", "Sub-agent", "") and len([m for m in session.messages if m.role == "user"]) == 1:
+            session.name = generate_session_name(new_content)
+            save_session(session)
+
+        # Run agent — for branched conversations, provider gets fresh session per branch
+        task = asyncio.create_task(self._run_agent(session_id, new_content))
+        self._tasks[session_id] = task
+
+        return branch_id
+
+    async def switch_branch(self, session_id: str, branch_id: str) -> None:
+        """Switch the active branch for a session."""
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        if branch_id not in session.branches:
+            raise ValueError(f"Branch {branch_id} not found")
+
+        session.active_branch_id = branch_id
+        save_session(session)
+
+        await ws_manager.send_to_session(
+            session_id, "agent:branch_switched",
+            {"session_id": session_id, "branch_id": branch_id, "session": session.model_dump()},
+        )
 
     async def invoke_agent(
         self,

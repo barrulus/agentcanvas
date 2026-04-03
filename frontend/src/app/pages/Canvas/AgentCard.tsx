@@ -148,6 +148,22 @@ export function AgentCard({ card }: { card: CardPosition }) {
         <span style={{ fontSize: 11, color: '#555' }}>
           {session.model}
         </span>
+        {session.mode_id && session.mode_id !== 'agent' && (
+          <span style={{
+            fontSize: 9, color: '#4fc3f7', background: '#1a2a3e',
+            padding: '1px 5px', borderRadius: 3, fontWeight: 600, textTransform: 'uppercase',
+          }}>
+            {session.mode_id}
+          </span>
+        )}
+        {session.worktree_path && (
+          <span style={{
+            fontSize: 9, color: '#66bb6a', background: '#1a2e1a',
+            padding: '1px 5px', borderRadius: 3, fontWeight: 600,
+          }} title={session.worktree_path}>
+            WT
+          </span>
+        )}
 
         <span style={{ flex: 1 }} />
 

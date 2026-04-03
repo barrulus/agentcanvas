@@ -5,6 +5,14 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
+class BranchInfo(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    parent_branch_id: Optional[str] = None
+    fork_message_id: str  # message ID of the fork point
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+    label: Optional[str] = None
+
+
 class Message(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     role: Literal["user", "assistant", "tool_call", "tool_result", "system"]
@@ -12,6 +20,8 @@ class Message(BaseModel):
     timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
     tool_name: Optional[str] = None
     tool_call_id: Optional[str] = None
+    parent_id: Optional[str] = None  # parent message in branch tree
+    branch_id: Optional[str] = None  # which branch this message belongs to
 
 
 class AgentSession(BaseModel):
@@ -29,6 +39,11 @@ class AgentSession(BaseModel):
     dashboard_id: Optional[str] = None
     parent_session_id: Optional[str] = None
     cwd: Optional[str] = None
+    mode_id: Optional[str] = None
+    worktree_path: Optional[str] = None
+    repo_path: Optional[str] = None
+    active_branch_id: Optional[str] = None
+    branches: dict[str, BranchInfo] = Field(default_factory=dict)
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     closed_at: Optional[float] = None
 

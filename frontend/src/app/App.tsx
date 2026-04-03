@@ -3,17 +3,20 @@ import { Canvas } from './pages/Canvas/Canvas'
 import { Toolbar } from './pages/Canvas/Toolbar'
 import { Settings } from './pages/Settings/Settings'
 import { History } from './pages/History/History'
+import { Templates } from './pages/Templates/Templates'
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts'
 
 export function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showNewAgent, setShowNewAgent] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
 
   useKeyboardShortcuts({
     onToggleNewAgent: useCallback(() => setShowNewAgent(v => !v), []),
     onToggleSettings: useCallback(() => setShowSettings(v => !v), []),
     onToggleHistory: useCallback(() => setShowHistory(v => !v), []),
+    onToggleTemplates: useCallback(() => setShowTemplates(v => !v), []),
   })
 
   return (
@@ -21,12 +24,14 @@ export function App() {
       <Toolbar
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={() => setShowHistory(true)}
+        onOpenTemplates={() => setShowTemplates(true)}
         showDialog={showNewAgent}
         setShowDialog={setShowNewAgent}
       />
       <Canvas />
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
       {showHistory && <History onClose={() => setShowHistory(false)} />}
+      {showTemplates && <Templates onClose={() => setShowTemplates(false)} />}
     </div>
   )
 }

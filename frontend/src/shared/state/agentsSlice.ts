@@ -1,5 +1,13 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit'
 
+interface BranchInfo {
+  id: string
+  parent_branch_id?: string | null
+  fork_message_id: string
+  created_at: number
+  label?: string | null
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'system'
@@ -7,6 +15,8 @@ interface Message {
   timestamp: number
   tool_name?: string
   tool_call_id?: string
+  parent_id?: string | null
+  branch_id?: string | null
 }
 
 interface AgentSession {
@@ -20,6 +30,12 @@ interface AgentSession {
   tokens: { input: number; output: number }
   created_at: number
   parent_session_id?: string | null
+  mode_id?: string | null
+  worktree_path?: string | null
+  repo_path?: string | null
+  cwd?: string | null
+  active_branch_id?: string | null
+  branches?: Record<string, BranchInfo>
   streamingMessage: { id: string; role: string; content: string; tool_name?: string } | null
   pendingApproval?: {
     approvalId: string
@@ -68,13 +84,37 @@ export const fetchModels = createAsyncThunk('agents/fetchModels', async (provide
 
 export const createSession = createAsyncThunk(
   'agents/createSession',
-  async (params: { provider_id: string; model: string; name?: string; system_prompt?: string }) => {
+  async (params: { provider_id: string; model: string; name?: string; system_prompt?: string; dashboard_id?: string; cwd?: string; mode_id?: string }) => {
     const res = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     })
     return await res.json()
+  }
+)
+
+export const branchMessage = createAsyncThunk(
+  'agents/branchMessage',
+  async (params: { sessionId: string; forkAfterMessageId: string; content: string }) => {
+    const res = await fetch(`/api/sessions/${params.sessionId}/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fork_after_message_id: params.forkAfterMessageId, content: params.content }),
+    })
+    return await res.json()
+  }
+)
+
+export const switchBranch = createAsyncThunk(
+  'agents/switchBranch',
+  async (params: { sessionId: string; branchId: string }) => {
+    await fetch(`/api/sessions/${params.sessionId}/switch-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch_id: params.branchId }),
+    })
+    return params
   }
 )
 
@@ -153,6 +193,15 @@ const agentsSlice = createSlice({
         s.pendingApproval = null
       }
     },
+    setBranch(state, action: PayloadAction<{ sessionId: string; branchId: string; session?: AgentSession }>) {
+      const s = state.sessions[action.payload.sessionId]
+      if (s) {
+        s.active_branch_id = action.payload.branchId
+        if (action.payload.session) {
+          state.sessions[action.payload.sessionId] = { ...action.payload.session, streamingMessage: s.streamingMessage }
+        }
+      }
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(fetchProviders.fulfilled, (state, action) => {
@@ -172,5 +221,5 @@ const agentsSlice = createSlice({
   },
 })
 
-export const { setSession, updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, removeSession, setApprovalRequest, clearApprovalRequest } = agentsSlice.actions
+export const { setSession, updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, removeSession, setApprovalRequest, clearApprovalRequest, setBranch } = agentsSlice.actions
 export const agentsReducer = agentsSlice.reducer

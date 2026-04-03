@@ -1,5 +1,5 @@
 import { store } from '../state/store'
-import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession, setApprovalRequest } from '../state/agentsSlice'
+import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession, setApprovalRequest, setBranch } from '../state/agentsSlice'
 import { placeCard, addConnection } from '../state/canvasSlice'
 
 class WebSocketManager {
@@ -76,6 +76,15 @@ class WebSocketManager {
           approvalId: data.approval_id,
           toolName: data.tool_name,
           arguments: data.arguments,
+        }))
+        break
+
+      case 'agent:branch_created':
+      case 'agent:branch_switched':
+        store.dispatch(setBranch({
+          sessionId: data.session_id || session_id,
+          branchId: data.branch_id,
+          session: data.session ? { ...data.session, streamingMessage: null } : undefined,
         }))
         break
 

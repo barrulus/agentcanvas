@@ -9,6 +9,7 @@ interface ShortcutCallbacks {
   onToggleNewAgent: () => void
   onToggleSettings: () => void
   onToggleHistory: () => void
+  onToggleTemplates: () => void
 }
 
 export function useKeyboardShortcuts(callbacks: ShortcutCallbacks) {
@@ -62,6 +63,7 @@ export function useKeyboardShortcuts(callbacks: ShortcutCallbacks) {
     if (e.key === 'n') { e.preventDefault(); callbacks.onToggleNewAgent(); return }
     if (e.key === 's') { e.preventDefault(); callbacks.onToggleSettings(); return }
     if (e.key === 'h') { e.preventDefault(); callbacks.onToggleHistory(); return }
+    if (e.key === 't') { e.preventDefault(); callbacks.onToggleTemplates(); return }
   }, [sessions, cards, dispatch, callbacks])
 
   useEffect(() => {

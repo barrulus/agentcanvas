@@ -3,31 +3,39 @@ import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
 import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard } from '@/shared/state/canvasSlice'
+import { fetchModes } from '@/shared/state/modesSlice'
+import { fetchTemplates } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 
 interface ToolbarProps {
   onOpenSettings?: () => void
   onOpenHistory?: () => void
+  onOpenTemplates?: () => void
   showDialog?: boolean
   setShowDialog?: (v: boolean) => void
 }
 
-export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogProp, setShowDialog: setShowDialogProp }: ToolbarProps) {
+export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDialog: showDialogProp, setShowDialog: setShowDialogProp }: ToolbarProps) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
   const dashboards = useSelector((s: RootState) => s.canvas.dashboards)
   const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
+  const modes = useSelector((s: RootState) => s.modes.modes)
   const [showDialogInternal, setShowDialogInternal] = useState(false)
   const showDialog = showDialogProp ?? showDialogInternal
   const setShowDialog = setShowDialogProp ?? setShowDialogInternal
   const [selectedProvider, setSelectedProvider] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [selectedModel, setSelectedModel] = useState('')
+  const [selectedMode, setSelectedMode] = useState('agent')
+  const [cwd, setCwd] = useState('')
   const [prompt, setPrompt] = useState('')
 
   useEffect(() => {
     dispatch(fetchProviders())
+    dispatch(fetchModes())
+    dispatch(fetchTemplates())
     wsManager.connect()
 
     // Load dashboards, then load layout + sessions for current dashboard
@@ -69,13 +77,16 @@ export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogP
       provider_id: selectedProvider,
       model: selectedModel,
       dashboard_id: currentDashboardId,
-    } as any)).unwrap()
+      mode_id: selectedMode || undefined,
+      cwd: cwd.trim() || undefined,
+    })).unwrap()
 
     dispatch(placeCard({ sessionId: result.id }))
     wsManager.sendMessage(result.id, prompt)
 
     setShowDialog(false)
     setPrompt('')
+    setCwd('')
   }
 
   const handleSwitchDashboard = (dashboardId: string) => {
@@ -151,6 +162,23 @@ export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogP
       <span style={{ flex: 1 }} />
 
       <button
+        onClick={onOpenTemplates}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#888',
+          border: '1px solid #333',
+          borderRadius: 6,
+          fontSize: 13,
+          cursor: 'pointer',
+          lineHeight: 1,
+        }}
+        title="Templates"
+      >
+        T
+      </button>
+
+      <button
         onClick={onOpenHistory}
         style={{
           padding: '6px 12px',
@@ -215,6 +243,28 @@ export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogP
           >
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>New Agent</h3>
 
+            {/* Mode selector */}
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Mode</label>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+              {modes.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setSelectedMode(m.id)}
+                  style={{
+                    padding: '4px 12px',
+                    background: selectedMode === m.id ? '#4fc3f7' : '#12121e',
+                    color: selectedMode === m.id ? '#000' : '#888',
+                    border: `1px solid ${selectedMode === m.id ? '#4fc3f7' : '#333'}`,
+                    borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: selectedMode === m.id ? 600 : 400,
+                  }}
+                  title={m.description || undefined}
+                >
+                  {m.icon && <span style={{ marginRight: 4 }}>{m.icon}</span>}
+                  {m.name}
+                </button>
+              ))}
+            </div>
+
             {/* Provider select */}
             <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Provider</label>
             <select
@@ -256,10 +306,23 @@ export function Toolbar({ onOpenSettings, onOpenHistory, showDialog: showDialogP
               placeholder="What should this agent do?"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreate() }}}
               style={{
-                width: '100%', padding: '8px 12px', marginBottom: 16,
+                width: '100%', padding: '8px 12px', marginBottom: 12,
                 background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
                 borderRadius: 6, fontSize: 13, minHeight: 80, resize: 'vertical',
                 fontFamily: 'inherit',
+              }}
+            />
+
+            {/* Working directory */}
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Working directory (optional)</label>
+            <input
+              value={cwd}
+              onChange={e => setCwd(e.target.value)}
+              placeholder="/path/to/project (enables git worktree isolation)"
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 16,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
               }}
             />
 
