@@ -128,6 +128,31 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
     setEditText('')
   }
 
+  const handleRetry = (messageId: string) => {
+    const msg = session.messages.find((m: any) => m.id === messageId)
+    if (!msg) return
+
+    let userMsg = msg
+    // If retrying an assistant message, find the preceding user message
+    if (msg.role === 'assistant') {
+      const msgIdx = session.messages.indexOf(msg)
+      for (let i = msgIdx - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'user') {
+          userMsg = session.messages[i]
+          break
+        }
+      }
+      if (userMsg.role !== 'user') return
+    }
+
+    const content = typeof userMsg.content === 'string' ? userMsg.content : JSON.stringify(userMsg.content)
+    const userIdx = session.messages.findIndex((m: any) => m.id === userMsg.id)
+    const parentMsg = userIdx > 0 ? session.messages[userIdx - 1] : null
+    const forkAfter = parentMsg?.id || userMsg.id
+
+    dispatch(branchMessage({ sessionId, forkAfterMessageId: forkAfter, content }))
+  }
+
   const selectSlashSuggestion = (slug: string) => {
     setInput(`/${slug} `)
     setSlashSuggestions([])
@@ -151,8 +176,9 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
         />
       )}
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '8px 12px' }}>
-        {displayMessages.map((msg: any) => {
+        {displayMessages.map((msg: any, idx: number) => {
           const siblings = getSiblingBranches(session, msg.id)
+          const isLastAssistant = msg.role === 'assistant' && idx === displayMessages.length - 1
           return (
             <div key={msg.id}>
               {siblings.length > 1 && msg.role === 'user' && (
@@ -168,6 +194,7 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
                   setEditingMessageId(msg.id)
                   setEditText(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))
                 } : undefined}
+                onRetry={(msg.role === 'user' || isLastAssistant) ? () => handleRetry(msg.id) : undefined}
               />
               {editingMessageId === msg.id && (
                 <div style={{
@@ -369,7 +396,7 @@ const mdComponents = {
   em: ({ children }: any) => <em style={{ color: '#bbb' }}>{children}</em>,
 }
 
-function MessageBubble({ message, isStreaming, onEdit }: { message: any; isStreaming?: boolean; onEdit?: () => void }) {
+function MessageBubble({ message, isStreaming, onEdit, onRetry }: { message: any; isStreaming?: boolean; onEdit?: () => void; onRetry?: () => void }) {
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
   const isToolCall = message.role === 'tool_call'
@@ -407,20 +434,37 @@ function MessageBubble({ message, isStreaming, onEdit }: { message: any; isStrea
         </Markdown>
       )}
       {isStreaming && <span style={{ color: '#4fc3f7' }}>|</span>}
-      {onEdit && (
-        <button
-          onClick={onEdit}
-          style={{
-            position: 'absolute', top: 4, right: 4,
-            background: 'none', border: 'none', color: '#555', cursor: 'pointer',
-            fontSize: 10, padding: '0 4px', opacity: 0.6,
-          }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
-          title="Edit & fork"
-        >
-          Edit
-        </button>
+      {(onEdit || onRetry) && (
+        <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 2 }}>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              style={{
+                background: 'none', border: 'none', color: '#555', cursor: 'pointer',
+                fontSize: 10, padding: '0 4px', opacity: 0.6,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
+              title="Retry (resubmit same prompt)"
+            >
+              Retry
+            </button>
+          )}
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              style={{
+                background: 'none', border: 'none', color: '#555', cursor: 'pointer',
+                fontSize: 10, padding: '0 4px', opacity: 0.6,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
+              title="Edit & fork"
+            >
+              Edit
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

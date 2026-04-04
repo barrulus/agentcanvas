@@ -55,10 +55,38 @@ class CardPosition(BaseModel):
     width: float = 480
     height: float = 280
     z_order: int = 0
+    card_type: Literal["agent", "view"] = "agent"
+
+
+class ViewCard(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Output"
+    content: str = ""
+    dashboard_id: Optional[str] = None
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+
+
+class Connection(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    from_card_id: str
+    to_card_id: str
+    condition: Optional[str] = None  # e.g. "contains:error", "not_contains:ok", "regex:SUCCESS"
+    output_schema: Optional[dict] = None  # JSON Schema to validate output before routing
+    transform: Optional[str] = None  # Template string: {{output}} for full text, {{output.field}} for JSON field access
+
+
+class CardGroup(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Group"
+    member_ids: list[str] = Field(default_factory=list)
+    collapsed: bool = False
+    color: Optional[str] = None
 
 
 class DashboardLayout(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     name: str = "New Canvas"
     cards: dict[str, CardPosition] = Field(default_factory=dict)
+    connections: list[Connection] = Field(default_factory=list)
+    groups: list[CardGroup] = Field(default_factory=list)
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())

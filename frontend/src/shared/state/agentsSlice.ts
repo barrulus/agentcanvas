@@ -33,6 +33,7 @@ interface AgentSession {
   mode_id?: string | null
   worktree_path?: string | null
   repo_path?: string | null
+  system_prompt?: string | null
   cwd?: string | null
   active_branch_id?: string | null
   branches?: Record<string, BranchInfo>

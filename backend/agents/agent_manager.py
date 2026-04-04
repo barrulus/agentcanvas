@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime
 from uuid import uuid4
 
@@ -306,6 +308,13 @@ class AgentManager:
             },
         )
 
+        # Route output to downstream connected cards
+        if session.status == "completed":
+            try:
+                await self._route_output(session_id)
+            except Exception:
+                logger.exception("Failed to route output for session %s", session_id)
+
     async def stop_session(self, session_id: str) -> None:
         session = self.sessions.get(session_id)
         if not session:
@@ -539,6 +548,168 @@ class AgentManager:
             "response": result_text,
             "cost_usd": session.cost_usd,
         }
+
+    # --- Task Flow: Output Routing ---
+
+    @staticmethod
+    def _evaluate_condition(condition: str | None, text: str) -> bool:
+        """Evaluate a routing condition against output text."""
+        if not condition:
+            return True
+        if condition.startswith("contains:"):
+            return condition[9:] in text
+        if condition.startswith("not_contains:"):
+            return condition[13:] not in text
+        if condition.startswith("regex:"):
+            try:
+                return bool(re.search(condition[6:], text))
+            except re.error:
+                return False
+        return True  # unknown condition format — pass through
+
+    @staticmethod
+    def _extract_json(text: str) -> dict | list | None:
+        """Try to extract JSON from text — looks for ```json blocks, then raw JSON."""
+        # Try ```json ... ``` fenced code block
+        m = re.search(r"```json\s*\n(.*?)\n\s*```", text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except json.JSONDecodeError:
+                pass
+        # Try first {...} or [...]
+        for start_char, end_char in [("{", "}"), ("[", "]")]:
+            start = text.find(start_char)
+            if start == -1:
+                continue
+            # Find matching closing bracket
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == start_char:
+                    depth += 1
+                elif text[i] == end_char:
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(text[start : i + 1])
+                        except json.JSONDecodeError:
+                            break
+        # Try full text as JSON
+        try:
+            return json.loads(text.strip())
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _apply_transform(transform: str, text: str) -> str:
+        """Apply a transform template to output text.
+
+        Supported placeholders:
+        - {{output}} — replaced with full output text
+        - {{output.field}} — replaced with a field from JSON output (dot-notation)
+        """
+        parsed = AgentManager._extract_json(text)
+
+        def replace_placeholder(match: re.Match) -> str:
+            path = match.group(1)
+            if path == "output":
+                return text
+            if path.startswith("output.") and parsed is not None and isinstance(parsed, dict):
+                keys = path[7:].split(".")
+                val = parsed
+                for key in keys:
+                    if isinstance(val, dict) and key in val:
+                        val = val[key]
+                    else:
+                        return match.group(0)  # leave placeholder intact
+                return json.dumps(val) if not isinstance(val, str) else val
+            return match.group(0)
+
+        return re.sub(r"\{\{([\w.]+)\}\}", replace_placeholder, transform)
+
+    async def _route_output(self, session_id: str, visited: set[str] | None = None) -> None:
+        """Route a completed agent's output to downstream connected cards."""
+        if visited is None:
+            visited = set()
+        if session_id in visited or len(visited) >= 10:
+            logger.warning("Cycle or depth limit in routing chain at %s", session_id)
+            return
+        visited.add(session_id)
+
+        session = self.sessions.get(session_id)
+        if not session or not session.dashboard_id:
+            return
+
+        # Get last assistant message as output
+        assistant_msgs = [m for m in session.messages if m.role == "assistant"]
+        if not assistant_msgs:
+            return
+        output_text = str(assistant_msgs[-1].content)
+
+        # Load connections for this dashboard
+        from backend.sessions.store import load_dashboard_connections
+        connections = load_dashboard_connections(session.dashboard_id)
+        outgoing = [c for c in connections if c.from_card_id == session_id]
+
+        if not outgoing:
+            return
+
+        async def route_to(conn: "Connection") -> None:
+            if not self._evaluate_condition(conn.condition, output_text):
+                return
+
+            routed_text = output_text
+
+            # Schema validation
+            if conn.output_schema:
+                parsed_json = self._extract_json(routed_text)
+                if parsed_json is not None:
+                    try:
+                        import jsonschema
+                        jsonschema.validate(instance=parsed_json, schema=conn.output_schema)
+                    except ImportError:
+                        logger.warning("jsonschema not installed — skipping validation")
+                    except Exception as e:
+                        logger.warning(
+                            "Schema validation failed for connection %s: %s", conn.id, e
+                        )
+                        return
+                else:
+                    logger.warning(
+                        "Output is not valid JSON for schema validation on connection %s", conn.id
+                    )
+                    return
+
+            # Transform application
+            if conn.transform:
+                routed_text = self._apply_transform(conn.transform, routed_text)
+
+            target_id = conn.to_card_id
+            # Broadcast routing event for UI animation
+            await ws_manager.broadcast_dashboard(
+                "flow:routed",
+                {"from_card_id": session_id, "to_card_id": target_id, "connection_id": conn.id},
+            )
+
+            # Check if target is an agent session
+            target_session = self.sessions.get(target_id)
+            if target_session:
+                await self.send_message(target_id, routed_text)
+                return
+
+            # Check if target is a view card
+            from backend.sessions.store import load_view_card, save_view_card
+            view_card = load_view_card(target_id)
+            if view_card:
+                view_card.content = routed_text
+                save_view_card(view_card)
+                await ws_manager.broadcast_dashboard(
+                    "view_card:update",
+                    {"card_id": target_id, "card": view_card.model_dump()},
+                )
+
+        from backend.agents.models import Connection
+        await asyncio.gather(*(route_to(c) for c in outgoing))
 
     def restore_sessions(self) -> None:
         """Load persisted sessions from disk on startup."""

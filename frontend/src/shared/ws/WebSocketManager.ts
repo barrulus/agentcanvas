@@ -1,6 +1,7 @@
 import { store } from '../state/store'
 import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession, setApprovalRequest, setBranch } from '../state/agentsSlice'
 import { placeCard, addConnection } from '../state/canvasSlice'
+import { setViewCard } from '../state/viewCardsSlice'
 
 class WebSocketManager {
   private ws: WebSocket | null = null
@@ -86,6 +87,18 @@ class WebSocketManager {
           branchId: data.branch_id,
           session: data.session ? { ...data.session, streamingMessage: null } : undefined,
         }))
+        break
+
+      case 'view_card:update':
+        if (data.card) {
+          store.dispatch(setViewCard(data.card))
+        }
+        break
+
+      case 'flow:routed':
+        // UI animation hook — could trigger a visual pulse on the connection
+        // For now, just log. The downstream effects (agent running, view card updating)
+        // are handled by their own events.
         break
 
       case 'agent:spawned': {

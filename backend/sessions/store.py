@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardPosition
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, ViewCard
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,45 @@ def load_all_sessions() -> list[AgentSession]:
 
 def delete_session_file(session_id: str) -> None:
     path = _sessions_dir() / f"{session_id}.json"
+    path.unlink(missing_ok=True)
+
+
+# --- View Cards ---
+
+def _view_cards_dir() -> Path:
+    d = _data_dir() / "view_cards"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def save_view_card(card: ViewCard) -> None:
+    path = _view_cards_dir() / f"{card.id}.json"
+    path.write_text(json.dumps(card.model_dump(), indent=2))
+
+
+def load_view_card(card_id: str) -> ViewCard | None:
+    path = _view_cards_dir() / f"{card_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return ViewCard.model_validate_json(path.read_text())
+    except Exception:
+        logger.warning("Failed to load view card %s", card_id)
+        return None
+
+
+def load_all_view_cards() -> list[ViewCard]:
+    cards = []
+    for path in _view_cards_dir().glob("*.json"):
+        try:
+            cards.append(ViewCard.model_validate_json(path.read_text()))
+        except Exception:
+            logger.warning("Skipping corrupt view card file %s", path.name)
+    return cards
+
+
+def delete_view_card_file(card_id: str) -> None:
+    path = _view_cards_dir() / f"{card_id}.json"
     path.unlink(missing_ok=True)
 
 
@@ -148,8 +187,13 @@ def delete_dashboard(dashboard_id: str) -> None:
     path.unlink(missing_ok=True)
 
 
-def save_dashboard_layout(dashboard_id: str, cards: dict[str, CardPosition]) -> None:
-    """Save just the cards portion of a dashboard."""
+def save_dashboard_layout(
+    dashboard_id: str,
+    cards: dict[str, CardPosition],
+    connections: list[Connection] | None = None,
+    groups: list[CardGroup] | None = None,
+) -> None:
+    """Save cards (and optionally connections/groups) of a dashboard."""
     dashboard = get_dashboard(dashboard_id)
     if not dashboard:
         # Auto-create if doesn't exist
@@ -157,23 +201,51 @@ def save_dashboard_layout(dashboard_id: str, cards: dict[str, CardPosition]) -> 
             "id": dashboard_id,
             "name": "Canvas",
             "cards": {},
+            "connections": [],
+            "groups": [],
             "created_at": datetime.now().timestamp(),
         }
     dashboard["cards"] = {sid: card.model_dump() for sid, card in cards.items()}
+    if connections is not None:
+        dashboard["connections"] = [c.model_dump() for c in connections]
+    if groups is not None:
+        dashboard["groups"] = [g.model_dump() for g in groups]
     path = _dashboards_dir() / f"{dashboard_id}.json"
     path.write_text(json.dumps(dashboard, indent=2))
 
 
-def load_dashboard_layout(dashboard_id: str) -> dict[str, CardPosition]:
-    """Load cards from a specific dashboard."""
+def load_dashboard_layout(dashboard_id: str) -> tuple[dict[str, CardPosition], list[Connection], list[CardGroup]]:
+    """Load cards, connections, and groups from a specific dashboard."""
     dashboard = get_dashboard(dashboard_id)
     if not dashboard:
-        return {}
+        return {}, [], []
     try:
-        return {sid: CardPosition.model_validate(card) for sid, card in dashboard.get("cards", {}).items()}
+        cards = {sid: CardPosition.model_validate(card) for sid, card in dashboard.get("cards", {}).items()}
     except Exception:
         logger.warning("Failed to load layout for dashboard %s", dashboard_id)
-        return {}
+        cards = {}
+    try:
+        connections = [Connection.model_validate(c) for c in dashboard.get("connections", [])]
+    except Exception:
+        logger.warning("Failed to load connections for dashboard %s", dashboard_id)
+        connections = []
+    try:
+        groups = [CardGroup.model_validate(g) for g in dashboard.get("groups", [])]
+    except Exception:
+        logger.warning("Failed to load groups for dashboard %s", dashboard_id)
+        groups = []
+    return cards, connections, groups
+
+
+def load_dashboard_connections(dashboard_id: str) -> list[Connection]:
+    """Load just the connections from a dashboard."""
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
+        return []
+    try:
+        return [Connection.model_validate(c) for c in dashboard.get("connections", [])]
+    except Exception:
+        return []
 
 
 # Keep old functions as aliases for backward compatibility during migration
@@ -182,4 +254,5 @@ def save_layout(cards: dict[str, CardPosition]) -> None:
 
 def load_layout() -> dict[str, CardPosition]:
     _migrate_old_layout()
-    return load_dashboard_layout("default")
+    cards, _connections, _groups = load_dashboard_layout("default")
+    return cards

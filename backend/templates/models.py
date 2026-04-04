@@ -25,6 +25,7 @@ class PromptTemplate(BaseModel):
     provider_id: Optional[str] = None
     model: Optional[str] = None
     system_prompt: Optional[str] = None
+    is_builtin: bool = False
     tags: list[str] = Field(default_factory=list)
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     updated_at: float = Field(default_factory=lambda: datetime.now().timestamp())

@@ -18,17 +18,47 @@ export const createDashboard = createAsyncThunk('canvas/createDashboard', async 
 export const loadLayout = createAsyncThunk('canvas/loadLayout', async (dashboardId: string) => {
   const res = await fetch(`/api/dashboards/${dashboardId}/layout`)
   const data = await res.json()
-  return { dashboardId, cards: data.cards as Record<string, CardPosition> }
+  return {
+    dashboardId,
+    cards: data.cards as Record<string, CardPosition>,
+    connections: (data.connections || []) as Connection[],
+    groups: (data.groups || []) as Array<{ id: string; name: string; member_ids: string[]; collapsed: boolean; color?: string }>,
+  }
 })
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-export function debouncedSaveLayout(dashboardId: string, cards: Record<string, CardPosition>) {
+export function debouncedSaveLayout(
+  dashboardId: string,
+  cards: Record<string, CardPosition>,
+  connections?: Connection[],
+  groups?: Record<string, CardGroup>,
+) {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
+    const payload: Record<string, unknown> = { cards }
+    if (connections) {
+      payload.connections = connections.map(c => ({
+        id: c.id,
+        from_card_id: c.from,
+        to_card_id: c.to,
+        condition: c.condition,
+        output_schema: c.output_schema,
+        transform: c.transform,
+      }))
+    }
+    if (groups) {
+      payload.groups = Object.values(groups).map(g => ({
+        id: g.id,
+        name: g.name,
+        member_ids: g.memberIds,
+        collapsed: g.collapsed,
+        color: g.color,
+      }))
+    }
     fetch(`/api/dashboards/${dashboardId}/layout`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cards }),
+      body: JSON.stringify(payload),
     })
   }, 500)
 }
@@ -40,11 +70,24 @@ interface CardPosition {
   width: number
   height: number
   zOrder: number
+  card_type?: 'agent' | 'view'
 }
 
 interface Connection {
+  id?: string
   from: string
   to: string
+  condition?: string
+  output_schema?: Record<string, any>
+  transform?: string
+}
+
+interface CardGroup {
+  id: string
+  name: string
+  memberIds: string[]
+  collapsed: boolean
+  color?: string
 }
 
 interface Dashboard {
@@ -57,6 +100,7 @@ interface Dashboard {
 interface CanvasState {
   cards: Record<string, CardPosition>
   connections: Connection[]
+  groups: Record<string, CardGroup>
   nextZOrder: number
   selectedCards: string[]
   currentDashboardId: string
@@ -66,6 +110,7 @@ interface CanvasState {
 const initialState: CanvasState = {
   cards: {},
   connections: [],
+  groups: {},
   nextZOrder: 1,
   selectedCards: [],
   currentDashboardId: 'default',
@@ -101,7 +146,7 @@ const canvasSlice = createSlice({
   name: 'canvas',
   initialState,
   reducers: {
-    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number }>) {
+    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' }>) {
       const pos = action.payload.x !== undefined
         ? { x: action.payload.x, y: action.payload.y! }
         : findOpenPosition(state.cards)
@@ -112,6 +157,7 @@ const canvasSlice = createSlice({
         width: DEFAULT_W,
         height: DEFAULT_H,
         zOrder: state.nextZOrder++,
+        card_type: action.payload.card_type || 'agent',
       }
     },
     moveCard(state, action: PayloadAction<{ sessionId: string; x: number; y: number }>) {
@@ -140,13 +186,86 @@ const canvasSlice = createSlice({
       delete state.cards[action.payload]
       state.connections = state.connections.filter(c => c.from !== action.payload && c.to !== action.payload)
       state.selectedCards = state.selectedCards.filter(id => id !== action.payload)
+      // Remove from any groups
+      for (const g of Object.values(state.groups)) {
+        g.memberIds = g.memberIds.filter(id => id !== action.payload)
+      }
     },
-    addConnection(state, action: PayloadAction<{ from: string; to: string }>) {
+    addConnection(state, action: PayloadAction<{ from: string; to: string; condition?: string }>) {
       const exists = state.connections.some(
         c => c.from === action.payload.from && c.to === action.payload.to
       )
       if (!exists) {
-        state.connections.push(action.payload)
+        state.connections.push({
+          id: crypto.randomUUID().replace(/-/g, ''),
+          ...action.payload,
+        })
+      }
+    },
+    removeConnection(state, action: PayloadAction<string>) {
+      state.connections = state.connections.filter(c => c.id !== action.payload)
+    },
+    updateConnectionCondition(state, action: PayloadAction<{ id: string; condition?: string }>) {
+      const conn = state.connections.find(c => c.id === action.payload.id)
+      if (conn) {
+        conn.condition = action.payload.condition
+      }
+    },
+    updateConnectionContract(state, action: PayloadAction<{ id: string; condition?: string; output_schema?: Record<string, any>; transform?: string }>) {
+      const conn = state.connections.find(c => c.id === action.payload.id)
+      if (conn) {
+        conn.condition = action.payload.condition
+        conn.output_schema = action.payload.output_schema
+        conn.transform = action.payload.transform
+      }
+    },
+    setConnections(state, action: PayloadAction<Connection[]>) {
+      state.connections = action.payload
+    },
+    // --- Groups ---
+    createGroup(state, action: PayloadAction<{ memberIds: string[]; name?: string }>) {
+      const id = crypto.randomUUID().replace(/-/g, '')
+      state.groups[id] = {
+        id,
+        name: action.payload.name || 'Group',
+        memberIds: action.payload.memberIds,
+        collapsed: false,
+      }
+      state.selectedCards = []
+    },
+    deleteGroup(state, action: PayloadAction<string>) {
+      delete state.groups[action.payload]
+    },
+    renameGroup(state, action: PayloadAction<{ id: string; name: string }>) {
+      const g = state.groups[action.payload.id]
+      if (g) g.name = action.payload.name
+    },
+    toggleGroupCollapsed(state, action: PayloadAction<string>) {
+      const g = state.groups[action.payload]
+      if (g) g.collapsed = !g.collapsed
+    },
+    addToGroup(state, action: PayloadAction<{ groupId: string; cardId: string }>) {
+      const g = state.groups[action.payload.groupId]
+      if (g && !g.memberIds.includes(action.payload.cardId)) {
+        g.memberIds.push(action.payload.cardId)
+      }
+    },
+    removeFromGroup(state, action: PayloadAction<{ groupId: string; cardId: string }>) {
+      const g = state.groups[action.payload.groupId]
+      if (g) {
+        g.memberIds = g.memberIds.filter(id => id !== action.payload.cardId)
+      }
+    },
+    moveGroup(state, action: PayloadAction<{ groupId: string; dx: number; dy: number }>) {
+      const g = state.groups[action.payload.groupId]
+      if (g) {
+        for (const memberId of g.memberIds) {
+          const card = state.cards[memberId]
+          if (card) {
+            card.x += action.payload.dx
+            card.y += action.payload.dy
+          }
+        }
       }
     },
     setSelected(state, action: PayloadAction<string[]>) {
@@ -156,6 +275,7 @@ const canvasSlice = createSlice({
       state.currentDashboardId = action.payload
       state.cards = {}
       state.connections = []
+      state.groups = {}
       state.selectedCards = []
     },
   },
@@ -164,6 +284,28 @@ const canvasSlice = createSlice({
       state.cards = action.payload.cards
       const maxZ = Object.values(action.payload.cards).reduce((m, c) => Math.max(m, c.zOrder || 0), 0)
       state.nextZOrder = maxZ + 1
+      // Load persisted connections
+      if (action.payload.connections.length > 0) {
+        state.connections = action.payload.connections.map(c => ({
+          id: c.id || crypto.randomUUID().replace(/-/g, ''),
+          from: (c as any).from_card_id || c.from,
+          to: (c as any).to_card_id || c.to,
+          condition: c.condition,
+          output_schema: (c as any).output_schema,
+          transform: (c as any).transform,
+        }))
+      }
+      // Load persisted groups
+      state.groups = {}
+      for (const g of action.payload.groups) {
+        state.groups[g.id] = {
+          id: g.id,
+          name: g.name,
+          memberIds: g.member_ids,
+          collapsed: g.collapsed,
+          color: g.color,
+        }
+      }
     })
     builder.addCase(fetchDashboards.fulfilled, (state, action) => {
       state.dashboards = action.payload
@@ -174,5 +316,5 @@ const canvasSlice = createSlice({
   },
 })
 
-export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, addConnection, setSelected, switchDashboard } = canvasSlice.actions
+export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
 export const canvasReducer = canvasSlice.reducer

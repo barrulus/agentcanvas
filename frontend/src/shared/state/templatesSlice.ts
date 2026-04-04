@@ -20,6 +20,7 @@ export interface PromptTemplate {
   provider_id?: string | null
   model?: string | null
   system_prompt?: string | null
+  is_builtin?: boolean
   tags: string[]
   created_at: number
   updated_at: number

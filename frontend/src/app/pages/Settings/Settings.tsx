@@ -10,6 +10,7 @@ import {
   fetchPermissions,
   setPermission,
 } from '@/shared/state/mcpSlice'
+import { fetchPolicies, createPolicy, deletePolicy, CommandPolicy } from '@/shared/state/commandPolicySlice'
 
 interface SettingsProps {
   onClose: () => void
@@ -20,7 +21,13 @@ export function Settings({ onClose }: SettingsProps) {
   const servers = useSelector((s: RootState) => s.mcp.servers)
   const tools = useSelector((s: RootState) => s.mcp.tools)
   const permissions = useSelector((s: RootState) => s.mcp.permissions)
+  const policies = useSelector((s: RootState) => s.commandPolicies.policies)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showPolicyForm, setShowPolicyForm] = useState(false)
+  const [policyPattern, setPolicyPattern] = useState('')
+  const [policyPatternType, setPolicyPatternType] = useState<'glob' | 'regex'>('glob')
+  const [policyAction, setPolicyAction] = useState<'allow' | 'deny' | 'ask'>('deny')
+  const [policyScope, setPolicyScope] = useState<'global' | 'mode'>('global')
 
   // Add form state
   const [formName, setFormName] = useState('')
@@ -33,6 +40,7 @@ export function Settings({ onClose }: SettingsProps) {
   useEffect(() => {
     dispatch(fetchServers())
     dispatch(fetchPermissions())
+    dispatch(fetchPolicies())
   }, [dispatch])
 
   const resetForm = () => {
@@ -149,8 +157,12 @@ export function Settings({ onClose }: SettingsProps) {
         </button>
 
         <h2 style={{ margin: '0 0 20px', fontSize: 18, color: '#e0e0e0', fontWeight: 700 }}>
-          MCP Server Settings
+          Settings
         </h2>
+
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+          MCP Servers
+        </h3>
 
         {/* Server list */}
         {servers.map(server => (
@@ -392,6 +404,133 @@ export function Settings({ onClose }: SettingsProps) {
             }}
           >
             + Add Server
+          </button>
+        )}
+
+        {/* Command Policies */}
+        <h3 style={{ margin: '24px 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+          Command Policies
+          <span style={{ fontSize: 11, color: '#666', fontWeight: 400, marginLeft: 8 }}>
+            Control which shell commands agents can run
+          </span>
+        </h3>
+
+        {policies.map(policy => (
+          <div key={policy.id} style={{
+            background: '#1a1a2e', borderRadius: 8, padding: '10px 14px', marginBottom: 8,
+            border: '1px solid #333', display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{
+              fontSize: 12, fontFamily: 'monospace', color: '#e0e0e0', flex: 1,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {policy.pattern}
+            </span>
+            <span style={{
+              fontSize: 10, padding: '2px 6px', borderRadius: 3,
+              background: policy.pattern_type === 'regex' ? '#2e1e3e' : '#1e2e1e',
+              color: policy.pattern_type === 'regex' ? '#b39ddb' : '#8be88b',
+            }}>
+              {policy.pattern_type}
+            </span>
+            <span style={{
+              fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
+              background: policy.action === 'deny' ? '#3e1e1e' : policy.action === 'allow' ? '#1e3e1e' : '#3e3e1e',
+              color: policy.action === 'deny' ? '#ef5350' : policy.action === 'allow' ? '#66bb6a' : '#ffa726',
+            }}>
+              {policy.action}
+            </span>
+            <span style={{ fontSize: 10, color: '#666' }}>
+              {policy.scope}{policy.scope_id ? `: ${policy.scope_id}` : ''}
+            </span>
+            <button
+              onClick={() => dispatch(deletePolicy(policy.id))}
+              style={{
+                background: 'none', border: 'none', color: '#ef5350', cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {showPolicyForm ? (
+          <div style={{
+            background: '#1a1a2e', borderRadius: 8, padding: 16, marginBottom: 12,
+            border: '1px solid #4fc3f7',
+          }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 13, color: '#e0e0e0' }}>Add Command Policy</h4>
+
+            <label style={labelStyle}>Pattern</label>
+            <input
+              value={policyPattern}
+              onChange={e => setPolicyPattern(e.target.value)}
+              placeholder="rm*, git push*, curl*"
+              style={inputStyle}
+            />
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Pattern type</label>
+                <select value={policyPatternType} onChange={e => setPolicyPatternType(e.target.value as any)} style={inputStyle}>
+                  <option value="glob">Glob</option>
+                  <option value="regex">Regex</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Action</label>
+                <select value={policyAction} onChange={e => setPolicyAction(e.target.value as any)} style={inputStyle}>
+                  <option value="deny">Deny</option>
+                  <option value="ask">Ask</option>
+                  <option value="allow">Allow</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Scope</label>
+                <select value={policyScope} onChange={e => setPolicyScope(e.target.value as any)} style={inputStyle}>
+                  <option value="global">Global</option>
+                  <option value="mode">Mode</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowPolicyForm(false); setPolicyPattern('') }}
+                style={{
+                  padding: '6px 14px', background: 'transparent', color: '#888',
+                  border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 12,
+                }}
+              >Cancel</button>
+              <button
+                onClick={() => {
+                  if (!policyPattern.trim()) return
+                  dispatch(createPolicy({
+                    pattern: policyPattern,
+                    pattern_type: policyPatternType,
+                    action: policyAction,
+                    scope: policyScope,
+                  }))
+                  setShowPolicyForm(false)
+                  setPolicyPattern('')
+                }}
+                style={{
+                  padding: '6px 14px', background: '#4fc3f7', color: '#000',
+                  border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12,
+                }}
+              >Add Policy</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowPolicyForm(true)}
+            style={{
+              width: '100%', padding: '8px 16px', background: 'transparent',
+              color: '#4fc3f7', border: '1px dashed #4fc3f7', borderRadius: 8,
+              cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            }}
+          >
+            + Add Command Policy
           </button>
         )}
       </div>

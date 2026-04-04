@@ -4,6 +4,8 @@ import { canvasReducer } from './canvasSlice'
 import { mcpReducer } from './mcpSlice'
 import { modesReducer } from './modesSlice'
 import { templatesReducer } from './templatesSlice'
+import { viewCardsReducer } from './viewCardsSlice'
+import { commandPolicyReducer } from './commandPolicySlice'
 
 export const store = configureStore({
   reducer: {
@@ -12,6 +14,8 @@ export const store = configureStore({
     mcp: mcpReducer,
     modes: modesReducer,
     templates: templatesReducer,
+    viewCards: viewCardsReducer,
+    commandPolicies: commandPolicyReducer,
   },
 })
 

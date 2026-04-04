@@ -4,6 +4,7 @@ import { Toolbar } from './pages/Canvas/Toolbar'
 import { Settings } from './pages/Settings/Settings'
 import { History } from './pages/History/History'
 import { Templates } from './pages/Templates/Templates'
+import { PromptTemplate } from '@/shared/state/templatesSlice'
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts'
 
 export function App() {
@@ -11,6 +12,7 @@ export function App() {
   const [showHistory, setShowHistory] = useState(false)
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [pendingTemplate, setPendingTemplate] = useState<PromptTemplate | null>(null)
 
   useKeyboardShortcuts({
     onToggleNewAgent: useCallback(() => setShowNewAgent(v => !v), []),
@@ -27,11 +29,17 @@ export function App() {
         onOpenTemplates={() => setShowTemplates(true)}
         showDialog={showNewAgent}
         setShowDialog={setShowNewAgent}
+        initialTemplate={pendingTemplate}
+        onTemplateClear={() => setPendingTemplate(null)}
       />
       <Canvas />
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
       {showHistory && <History onClose={() => setShowHistory(false)} />}
-      {showTemplates && <Templates onClose={() => setShowTemplates(false)} />}
+      {showTemplates && <Templates onClose={() => setShowTemplates(false)} onUseTemplate={(t) => {
+        setPendingTemplate(t)
+        setShowTemplates(false)
+        setShowNewAgent(true)
+      }} />}
     </div>
   )
 }

@@ -51,5 +51,21 @@ def load_template_by_slug(slug: str) -> PromptTemplate | None:
 
 
 def delete_template(template_id: str) -> None:
+    # Protect built-in templates from deletion
+    t = load_template(template_id)
+    if t and t.is_builtin:
+        return
     path = _templates_dir() / f"{template_id}.json"
     path.unlink(missing_ok=True)
+
+
+def seed_builtin_templates() -> None:
+    """Create built-in templates if they don't already exist."""
+    from backend.templates.builtins import BUILTIN_TEMPLATES
+
+    existing_slugs = {t.slug for t in load_all_templates()}
+    for tmpl_data in BUILTIN_TEMPLATES:
+        if tmpl_data["slug"] not in existing_slugs:
+            template = PromptTemplate(**tmpl_data)
+            save_template(template)
+            logger.info("Seeded built-in template: %s", template.name)

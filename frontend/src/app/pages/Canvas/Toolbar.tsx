@@ -2,10 +2,15 @@ import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
-import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard } from '@/shared/state/canvasSlice'
+import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup } from '@/shared/state/canvasSlice'
+import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { fetchModes } from '@/shared/state/modesSlice'
-import { fetchTemplates } from '@/shared/state/templatesSlice'
+import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
+
+function renderTemplate(prompt: string, fieldValues: Record<string, string>): string {
+  return prompt.replace(/\{\{(\w+)\}\}/g, (_, key) => fieldValues[key] || `{{${key}}}`)
+}
 
 interface ToolbarProps {
   onOpenSettings?: () => void
@@ -13,15 +18,18 @@ interface ToolbarProps {
   onOpenTemplates?: () => void
   showDialog?: boolean
   setShowDialog?: (v: boolean) => void
+  initialTemplate?: PromptTemplate | null
+  onTemplateClear?: () => void
 }
 
-export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDialog: showDialogProp, setShowDialog: setShowDialogProp }: ToolbarProps) {
+export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDialog: showDialogProp, setShowDialog: setShowDialogProp, initialTemplate, onTemplateClear }: ToolbarProps) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
   const dashboards = useSelector((s: RootState) => s.canvas.dashboards)
   const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
   const modes = useSelector((s: RootState) => s.modes.modes)
+  const selectedCards = useSelector((s: RootState) => s.canvas.selectedCards)
   const [showDialogInternal, setShowDialogInternal] = useState(false)
   const showDialog = showDialogProp ?? showDialogInternal
   const setShowDialog = setShowDialogProp ?? setShowDialogInternal
@@ -29,8 +37,14 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedMode, setSelectedMode] = useState('agent')
+  const [agentName, setAgentName] = useState('')
   const [cwd, setCwd] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null)
+  const [templateFields, setTemplateFields] = useState<Record<string, string>>({})
+  const templates = useSelector((s: RootState) => s.templates.templates)
 
   useEffect(() => {
     dispatch(fetchProviders())
@@ -50,6 +64,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       } else {
         dispatch(loadLayout(currentDashboardId))
         dispatch(fetchSessions(currentDashboardId))
+        dispatch(fetchViewCards(currentDashboardId))
       }
     })
   }, [dispatch])
@@ -63,6 +78,40 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     }
   }, [sessions, dispatch])
 
+  // Apply template from prop (e.g., from Templates panel "Use" button)
+  useEffect(() => {
+    if (initialTemplate) {
+      applyTemplate(initialTemplate)
+    }
+  }, [initialTemplate])
+
+  const applyTemplate = (template: PromptTemplate) => {
+    setSelectedTemplate(template)
+    // Initialize field values with defaults
+    const defaults: Record<string, string> = {}
+    for (const f of template.fields) {
+      defaults[f.name] = f.default || ''
+    }
+    setTemplateFields(defaults)
+    // Pre-fill system prompt
+    if (template.system_prompt) {
+      setSystemPrompt(template.system_prompt)
+      setShowAdvanced(true)
+    }
+    // Pre-fill provider and model
+    if (template.provider_id) {
+      handleProviderChange(template.provider_id).then(() => {
+        if (template.model) setSelectedModel(template.model)
+      })
+    }
+  }
+
+  const clearTemplate = () => {
+    setSelectedTemplate(null)
+    setTemplateFields({})
+    onTemplateClear?.()
+  }
+
   const handleProviderChange = async (providerId: string) => {
     setSelectedProvider(providerId)
     const res = await fetch(`/api/providers/${providerId}/models`)
@@ -72,21 +121,31 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   }
 
   const handleCreate = async () => {
-    if (!selectedProvider || !selectedModel || !prompt.trim()) return
+    // Determine the effective message: use template rendering if template is active
+    const effectivePrompt = selectedTemplate
+      ? renderTemplate(selectedTemplate.prompt, templateFields)
+      : prompt.trim()
+    if (!selectedProvider || !selectedModel || !effectivePrompt) return
     const result = await dispatch(createSession({
       provider_id: selectedProvider,
       model: selectedModel,
+      name: agentName.trim() || undefined,
+      system_prompt: systemPrompt.trim() || undefined,
       dashboard_id: currentDashboardId,
       mode_id: selectedMode || undefined,
       cwd: cwd.trim() || undefined,
     })).unwrap()
 
     dispatch(placeCard({ sessionId: result.id }))
-    wsManager.sendMessage(result.id, prompt)
+    wsManager.sendMessage(result.id, effectivePrompt)
 
     setShowDialog(false)
+    setAgentName('')
     setPrompt('')
+    setSystemPrompt('')
+    setShowAdvanced(false)
     setCwd('')
+    clearTemplate()
   }
 
   const handleSwitchDashboard = (dashboardId: string) => {
@@ -94,6 +153,15 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     dispatch(switchDashboard(dashboardId))
     dispatch(loadLayout(dashboardId))
     dispatch(fetchSessions(dashboardId))
+    dispatch(fetchViewCards(dashboardId))
+  }
+
+  const handleCreateViewCard = async () => {
+    const result = await dispatch(createViewCard({
+      name: 'Output',
+      dashboard_id: currentDashboardId,
+    })).unwrap()
+    dispatch(placeCard({ sessionId: result.id, card_type: 'view' }))
   }
 
   const handleNewDashboard = async () => {
@@ -212,6 +280,45 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         ⚙
       </button>
 
+      {selectedCards.length > 1 && (
+        <button
+          onClick={() => {
+            const name = window.prompt('Group name:', 'Group')
+            if (name?.trim()) dispatch(createGroup({ memberIds: selectedCards, name: name.trim() }))
+          }}
+          style={{
+            padding: '6px 12px',
+            background: 'transparent',
+            color: '#66bb6a',
+            border: '1px solid #2e5a2e',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+          title="Group selected cards"
+        >
+          Group ({selectedCards.length})
+        </button>
+      )}
+
+      <button
+        onClick={handleCreateViewCard}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#b39ddb',
+          border: '1px solid #4a3a66',
+          borderRadius: 6,
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: 'pointer',
+        }}
+        title="Add a view/output card"
+      >
+        + View Card
+      </button>
+
       <button
         onClick={() => setShowDialog(true)}
         style={{
@@ -243,6 +350,87 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
           >
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>New Agent</h3>
 
+            {/* Template selector */}
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Template (optional)</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <select
+                value={selectedTemplate?.id || ''}
+                onChange={e => {
+                  const t = templates.find(t => t.id === e.target.value)
+                  if (t) applyTemplate(t)
+                  else clearTemplate()
+                }}
+                style={{
+                  flex: 1, padding: '8px 12px',
+                  background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                  borderRadius: 6, fontSize: 13,
+                }}
+              >
+                <option value="">No template</option>
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}{t.is_builtin ? ' (built-in)' : ''}</option>
+                ))}
+              </select>
+              {selectedTemplate && (
+                <button onClick={clearTemplate} style={{
+                  background: 'none', border: '1px solid #333', color: '#888', borderRadius: 6,
+                  padding: '4px 8px', cursor: 'pointer', fontSize: 12,
+                }}>Clear</button>
+              )}
+            </div>
+
+            {/* Template fields */}
+            {selectedTemplate && selectedTemplate.fields.length > 0 && (
+              <div style={{ marginBottom: 12, padding: 12, background: '#12121e', borderRadius: 8, border: '1px solid #2a2a3e' }}>
+                <span style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 8 }}>Template fields</span>
+                {selectedTemplate.fields.map(field => (
+                  <div key={field.name} style={{ marginBottom: 8 }}>
+                    <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 2 }}>
+                      {field.label}{field.required ? ' *' : ''}
+                    </label>
+                    {field.type === 'select' ? (
+                      <select
+                        value={templateFields[field.name] || field.default || ''}
+                        onChange={e => setTemplateFields(f => ({ ...f, [field.name]: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '6px 10px',
+                          background: '#1a1a2e', color: '#e0e0e0', border: '1px solid #333',
+                          borderRadius: 4, fontSize: 12,
+                        }}
+                      >
+                        {(field.options || []).map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : field.type === 'textarea' ? (
+                      <textarea
+                        value={templateFields[field.name] || ''}
+                        onChange={e => setTemplateFields(f => ({ ...f, [field.name]: e.target.value }))}
+                        placeholder={field.placeholder || undefined}
+                        style={{
+                          width: '100%', padding: '6px 10px', minHeight: 60, resize: 'vertical',
+                          background: '#1a1a2e', color: '#e0e0e0', border: '1px solid #333',
+                          borderRadius: 4, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box',
+                        }}
+                      />
+                    ) : (
+                      <input
+                        value={templateFields[field.name] || ''}
+                        onChange={e => setTemplateFields(f => ({ ...f, [field.name]: e.target.value }))}
+                        placeholder={field.placeholder || undefined}
+                        type={field.type === 'number' ? 'number' : 'text'}
+                        style={{
+                          width: '100%', padding: '6px 10px',
+                          background: '#1a1a2e', color: '#e0e0e0', border: '1px solid #333',
+                          borderRadius: 4, fontSize: 12, boxSizing: 'border-box',
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Mode selector */}
             <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Mode</label>
             <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
@@ -264,6 +452,19 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
                 </button>
               ))}
             </div>
+
+            {/* Agent name */}
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Name (optional)</label>
+            <input
+              value={agentName}
+              onChange={e => setAgentName(e.target.value)}
+              placeholder="e.g. Researcher, Code Reviewer..."
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 12,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
+              }}
+            />
 
             {/* Provider select */}
             <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Provider</label>
@@ -313,8 +514,38 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
               }}
             />
 
-            {/* Working directory */}
-            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Working directory (optional)</label>
+            {/* Advanced toggle */}
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                background: 'none', border: 'none', color: '#666', fontSize: 11,
+                cursor: 'pointer', padding: 0, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <span style={{ fontSize: 8 }}>{showAdvanced ? '▼' : '▶'}</span>
+              Advanced options
+            </button>
+
+            {showAdvanced && <>
+              {/* System prompt */}
+              <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>
+                System prompt (optional)
+                <span style={{ color: '#555', fontWeight: 400 }}> — defines the agent's role and behavior</span>
+              </label>
+              <textarea
+                value={systemPrompt}
+                onChange={e => setSystemPrompt(e.target.value)}
+                placeholder="e.g. You are a code reviewer. Analyze code for bugs, security issues, and style. Return findings as a bullet list."
+                style={{
+                  width: '100%', padding: '8px 12px', marginBottom: 12,
+                  background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                  borderRadius: 6, fontSize: 13, minHeight: 60, maxHeight: 200, resize: 'vertical',
+                  fontFamily: 'inherit', boxSizing: 'border-box',
+                }}
+              />
+
+              {/* Working directory */}
+              <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Working directory (optional)</label>
             <input
               value={cwd}
               onChange={e => setCwd(e.target.value)}
@@ -325,6 +556,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
                 borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
               }}
             />
+            </>}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button
@@ -338,11 +570,11 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
               </button>
               <button
                 onClick={handleCreate}
-                disabled={!selectedProvider || !selectedModel || !prompt.trim()}
+                disabled={!selectedProvider || !selectedModel || (!prompt.trim() && !selectedTemplate)}
                 style={{
                   padding: '8px 16px', background: '#4fc3f7', color: '#000',
                   border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13,
-                  opacity: (!selectedProvider || !selectedModel || !prompt.trim()) ? 0.4 : 1,
+                  opacity: (!selectedProvider || !selectedModel || (!prompt.trim() && !selectedTemplate)) ? 0.4 : 1,
                 }}
               >
                 Create & Send

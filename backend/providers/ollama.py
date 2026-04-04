@@ -59,7 +59,7 @@ class OllamaProvider(AgentProvider):
         state["messages"].append({"role": "user", "content": content})
 
         # Get available tools from executor (MCP servers + built-ins)
-        tools = []
+        tools: list[dict] = []
         if self._tool_executor:
             tools = await self._tool_executor.get_available_tools()
 
@@ -78,54 +78,94 @@ class OllamaProvider(AgentProvider):
                 request_body["tools"] = tools
 
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/v1/chat/completions",
-                    json=request_body,
-                ) as response:
-                    response.raise_for_status()
+                try:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/v1/chat/completions",
+                        json=request_body,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload = line[len("data: "):]
+                            if payload.strip() == "[DONE]":
+                                break
 
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[len("data: "):]
-                        if payload.strip() == "[DONE]":
-                            break
+                            try:
+                                chunk = json.loads(payload)
+                            except json.JSONDecodeError:
+                                continue
 
-                        try:
-                            chunk = json.loads(payload)
-                        except json.JSONDecodeError:
-                            continue
+                            choices = chunk.get("choices", [])
+                            if not choices:
+                                continue
 
-                        choices = chunk.get("choices", [])
-                        if not choices:
-                            continue
+                            delta = choices[0].get("delta", {})
 
-                        delta = choices[0].get("delta", {})
+                            # Text content
+                            text = delta.get("content")
+                            if text:
+                                assistant_text += text
+                                yield TextDelta(message_id=message_id, text=text)
 
-                        # Text content
-                        text = delta.get("content")
-                        if text:
-                            assistant_text += text
-                            yield TextDelta(message_id=message_id, text=text)
+                            # Tool calls
+                            for tc in delta.get("tool_calls", []):
+                                idx = tc.get("index", 0)
+                                while len(tool_calls_accum) <= idx:
+                                    tool_calls_accum.append({"id": "", "name": "", "arguments": ""})
+                                if tc.get("id"):
+                                    tool_calls_accum[idx]["id"] = tc["id"]
+                                fn = tc.get("function", {})
+                                if fn.get("name"):
+                                    tool_calls_accum[idx]["name"] = fn["name"]
+                                    yield ToolCallStart(
+                                        message_id=message_id,
+                                        tool_call_id=tc.get("id", f"call_{idx}"),
+                                        tool_name=fn["name"],
+                                    )
+                                if fn.get("arguments"):
+                                    tool_calls_accum[idx]["arguments"] += fn["arguments"]
 
-                        # Tool calls
-                        for tc in delta.get("tool_calls", []):
-                            idx = tc.get("index", 0)
-                            while len(tool_calls_accum) <= idx:
-                                tool_calls_accum.append({"id": "", "name": "", "arguments": ""})
-                            if tc.get("id"):
-                                tool_calls_accum[idx]["id"] = tc["id"]
-                            fn = tc.get("function", {})
-                            if fn.get("name"):
-                                tool_calls_accum[idx]["name"] = fn["name"]
-                                yield ToolCallStart(
-                                    message_id=message_id,
-                                    tool_call_id=tc.get("id", f"call_{idx}"),
-                                    tool_name=fn["name"],
-                                )
-                            if fn.get("arguments"):
-                                tool_calls_accum[idx]["arguments"] += fn["arguments"]
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 400 and tools:
+                        # Model likely doesn't support tool calling — retry without tools
+                        logger.info(
+                            "Model %s returned 400 with tools; retrying without tools",
+                            state["model"],
+                        )
+                        tools = []
+                        request_body.pop("tools", None)
+                        async with client.stream(
+                            "POST",
+                            f"{self.base_url}/v1/chat/completions",
+                            json=request_body,
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                payload = line[len("data: "):]
+                                if payload.strip() == "[DONE]":
+                                    break
+
+                                try:
+                                    chunk = json.loads(payload)
+                                except json.JSONDecodeError:
+                                    continue
+
+                                choices = chunk.get("choices", [])
+                                if not choices:
+                                    continue
+
+                                delta = choices[0].get("delta", {})
+
+                                text = delta.get("content")
+                                if text:
+                                    assistant_text += text
+                                    yield TextDelta(message_id=message_id, text=text)
+                    else:
+                        raise
 
             # Record assistant message in history
             assistant_msg: dict = {"role": "assistant", "content": assistant_text or None}

@@ -119,6 +119,61 @@ class ToolExecutor:
             if not approved:
                 return f"Tool '{tool_name}' was denied by user."
 
+        # Command policy check for shell-like tools
+        command_str = self._extract_command(tool_name, arguments)
+        if command_str:
+            from backend.agents.command_policy import evaluate_command, save_audit_entry, CommandAuditEntry
+            # Get mode_id from session if available
+            mode_id = None
+            if session_id:
+                from backend.agents.agent_manager import agent_manager
+                sess = agent_manager.sessions.get(session_id)
+                if sess:
+                    mode_id = sess.mode_id
+
+            cmd_action, cmd_policy_id = evaluate_command(command_str, mode_id)
+
+            if cmd_action == "deny":
+                save_audit_entry(CommandAuditEntry(
+                    session_id=session_id or parent_session_id,
+                    command=command_str, action_taken="denied", policy_id=cmd_policy_id,
+                ))
+                return f"Command denied by policy: {command_str}"
+
+            if cmd_action == "ask" and session_id:
+                # Reuse existing approval mechanism
+                approval_id = uuid4().hex
+                future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+                self._pending_approvals[approval_id] = future
+
+                await ws_manager.send_to_session(session_id, "agent:approval_request", {
+                    "session_id": session_id,
+                    "approval_id": approval_id,
+                    "tool_name": f"command: {command_str}",
+                    "arguments": arguments,
+                })
+
+                try:
+                    approved = await asyncio.wait_for(future, timeout=300.0)
+                except asyncio.TimeoutError:
+                    approved = False
+                finally:
+                    self._pending_approvals.pop(approval_id, None)
+
+                action_taken = "approved" if approved else "rejected"
+                save_audit_entry(CommandAuditEntry(
+                    session_id=session_id,
+                    command=command_str, action_taken=action_taken, policy_id=cmd_policy_id,
+                ))
+                if not approved:
+                    return f"Command rejected by user: {command_str}"
+            else:
+                # Allowed — log it
+                save_audit_entry(CommandAuditEntry(
+                    session_id=session_id or parent_session_id,
+                    command=command_str, action_taken="allowed", policy_id=cmd_policy_id,
+                ))
+
         # Execute the tool
         entry = self._tool_index.get(tool_name)
         if not entry:
@@ -195,6 +250,19 @@ class ToolExecutor:
             except Exception:
                 pass
         self._connections.clear()
+
+    @staticmethod
+    def _extract_command(tool_name: str, arguments: dict) -> str | None:
+        """Extract the shell command from a tool call, if it's a shell-like tool."""
+        lower = tool_name.lower()
+        shell_patterns = ["bash", "shell", "exec", "run_command", "terminal", "command"]
+        if not any(p in lower for p in shell_patterns):
+            return None
+        # Common argument names for shell commands
+        for key in ["command", "cmd", "script", "code", "input"]:
+            if key in arguments and isinstance(arguments[key], str):
+                return arguments[key]
+        return None
 
     def get_tool_names(self) -> list[str]:
         """Return all qualified tool names (for permission filtering)."""

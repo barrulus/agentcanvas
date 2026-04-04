@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from backend.agents.agent_manager import agent_manager
 from backend.agents.ws_manager import ws_manager
 from backend.providers.registry import get_provider, get_registry, get_tool_executor, init_providers, list_providers
-from backend.sessions.store import save_layout, load_layout  # noqa: F401 - kept for backward compat
+from backend.sessions.store import save_layout, load_layout, save_session  # noqa: F401 - kept for backward compat
 from backend.agents.models import CardPosition
 from backend.mcp.models import MCPServerConfig
 from backend.mcp import permissions as mcp_permissions
@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     init_providers()
     agent_manager.restore_sessions()
+    from backend.templates.store import seed_builtin_templates
+    seed_builtin_templates()
     yield
 
 
@@ -103,6 +105,22 @@ async def get_session(session_id: str):
     return session.model_dump()
 
 
+@app.patch("/api/sessions/{session_id}")
+async def update_session(session_id: str, request: Request):
+    body = await request.json()
+    session = agent_manager.get_session(session_id)
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if "name" in body:
+        session.name = body["name"]
+    save_session(session)
+    await ws_manager.broadcast_dashboard(
+        "agent:status",
+        {"session_id": session.id, "status": session.status, "session": session.model_dump()},
+    )
+    return session.model_dump()
+
+
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     await agent_manager.delete_session(session_id)
@@ -140,6 +158,67 @@ async def list_branches(session_id: str):
     if not session:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"branches": {k: v.model_dump() for k, v in session.branches.items()}, "active_branch_id": session.active_branch_id}
+
+
+# --- View Cards ---
+
+
+@app.post("/api/view-cards")
+async def create_view_card(request: Request):
+    from backend.agents.models import ViewCard
+    from backend.sessions.store import save_view_card
+    body = await request.json()
+    card = ViewCard(
+        name=body.get("name", "Output"),
+        content=body.get("content", ""),
+        dashboard_id=body.get("dashboard_id"),
+    )
+    save_view_card(card)
+    return card.model_dump()
+
+
+@app.get("/api/view-cards")
+async def list_view_cards(dashboard_id: str = ""):
+    from backend.sessions.store import load_all_view_cards
+    cards = load_all_view_cards()
+    if dashboard_id:
+        cards = [c for c in cards if c.dashboard_id == dashboard_id]
+    return {"view_cards": [c.model_dump() for c in cards]}
+
+
+@app.get("/api/view-cards/{card_id}")
+async def get_view_card(card_id: str):
+    from backend.sessions.store import load_view_card
+    card = load_view_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.put("/api/view-cards/{card_id}")
+async def update_view_card(card_id: str, request: Request):
+    from backend.sessions.store import load_view_card, save_view_card
+    card = load_view_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await request.json()
+    if "name" in body:
+        card.name = body["name"]
+    if "content" in body:
+        card.content = body["content"]
+    save_view_card(card)
+    await ws_manager.broadcast_dashboard(
+        "view_card:update",
+        {"card_id": card_id, "card": card.model_dump()},
+    )
+    return card.model_dump()
+
+
+@app.delete("/api/view-cards/{card_id}")
+async def delete_view_card(card_id: str):
+    from backend.sessions.store import delete_view_card_file
+    delete_view_card_file(card_id)
+    return {"ok": True}
 
 
 # --- Git Worktree ---
@@ -318,16 +397,23 @@ async def delete_dashboard_endpoint(dashboard_id: str):
 @app.get("/api/dashboards/{dashboard_id}/layout")
 async def get_dashboard_layout(dashboard_id: str):
     from backend.sessions.store import load_dashboard_layout
-    cards = load_dashboard_layout(dashboard_id)
-    return {"cards": {sid: c.model_dump() for sid, c in cards.items()}}
+    cards, connections, groups = load_dashboard_layout(dashboard_id)
+    return {
+        "cards": {sid: c.model_dump() for sid, c in cards.items()},
+        "connections": [c.model_dump() for c in connections],
+        "groups": [g.model_dump() for g in groups],
+    }
 
 
 @app.put("/api/dashboards/{dashboard_id}/layout")
 async def save_dashboard_layout_endpoint(dashboard_id: str, request: Request):
     from backend.sessions.store import save_dashboard_layout
+    from backend.agents.models import CardGroup, Connection
     body = await request.json()
     cards = {sid: CardPosition.model_validate(c) for sid, c in body.get("cards", {}).items()}
-    save_dashboard_layout(dashboard_id, cards)
+    connections = [Connection.model_validate(c) for c in body.get("connections", [])]
+    groups = [CardGroup.model_validate(g) for g in body.get("groups", [])]
+    save_dashboard_layout(dashboard_id, cards, connections, groups)
     return {"ok": True}
 
 
@@ -438,6 +524,50 @@ async def delete_mode_endpoint(mode_id: str):
     from backend.modes.store import delete_mode
     delete_mode(mode_id)
     return {"ok": True}
+
+
+# --- Command Policies ---
+
+
+@app.get("/api/command-policies")
+async def list_command_policies():
+    from backend.agents.command_policy import load_policies
+    return {"policies": [p.model_dump() for p in load_policies()]}
+
+
+@app.post("/api/command-policies")
+async def create_command_policy(request: Request):
+    from backend.agents.command_policy import CommandPolicy, save_policy
+    body = await request.json()
+    policy = CommandPolicy(**body)
+    save_policy(policy)
+    return policy.model_dump()
+
+
+@app.put("/api/command-policies/{policy_id}")
+async def update_command_policy(policy_id: str, request: Request):
+    from backend.agents.command_policy import get_policy, save_policy
+    existing = get_policy(policy_id)
+    if not existing:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await request.json()
+    updated = existing.model_copy(update=body)
+    updated.id = policy_id
+    save_policy(updated)
+    return updated.model_dump()
+
+
+@app.delete("/api/command-policies/{policy_id}")
+async def delete_command_policy_endpoint(policy_id: str):
+    from backend.agents.command_policy import delete_policy
+    delete_policy(policy_id)
+    return {"ok": True}
+
+
+@app.get("/api/sessions/{session_id}/command-audit")
+async def get_command_audit(session_id: str):
+    from backend.agents.command_policy import get_audit_log
+    return {"entries": [e.model_dump() for e in get_audit_log(session_id)]}
 
 
 # --- WebSocket ---
