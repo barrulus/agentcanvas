@@ -3,10 +3,21 @@ import { useSelector, useDispatch } from 'react-redux'
 import { AnimatePresence } from 'framer-motion'
 import { RootState, AppDispatch } from '@/shared/state/store'
 import { AgentCard } from './AgentCard'
+import { InputCardComponent } from './InputCardComponent'
 import { ViewCardComponent } from './ViewCardComponent'
 import { debouncedSaveLayout, addConnection, removeConnection, updateConnectionContract, toggleGroupCollapsed, moveGroup, deleteGroup, renameGroup } from '@/shared/state/canvasSlice'
 
 type Port = { x: number; y: number; nx: number; ny: number }
+
+const COLLAPSED_WIDTH = 200
+const COLLAPSED_HEIGHT = 44
+
+function getEffectiveDimensions(card: { x: number; y: number; width: number; height: number; collapsed?: boolean }): { x: number; y: number; width: number; height: number } {
+  if (card.collapsed) {
+    return { x: card.x, y: card.y, width: COLLAPSED_WIDTH, height: COLLAPSED_HEIGHT }
+  }
+  return card
+}
 
 function getCardPorts(card: { x: number; y: number; width: number; height: number }): Port[] {
   const cx = card.x + card.width / 2
@@ -416,6 +427,8 @@ export function Canvas() {
             if (inCollapsedGroup) return null
             return card.card_type === 'view'
               ? <ViewCardComponent key={card.session_id} card={card} />
+              : card.card_type === 'input'
+              ? <InputCardComponent key={card.session_id} card={card} />
               : <AgentCard key={card.session_id} card={card} />
           })}
         </AnimatePresence>
@@ -423,12 +436,39 @@ export function Canvas() {
         {/* Connection lines and ports */}
         <svg style={{ position: 'absolute', top: 0, left: 0, width: 1, height: 1, overflow: 'visible', zIndex: 999999 }}>
           {/* Existing connections */}
-          {connections.map((conn) => {
-            const from = cards[conn.from]
-            const to = cards[conn.to]
-            if (!from || !to) return null
+          {(() => {
+            // Build collapsed group membership: member_id → group virtual card rect
+            const collapsedMembers = new Set<string>()
+            const memberToGroupCard: Record<string, { x: number; y: number; width: number; height: number }> = {}
+            for (const group of Object.values(groups)) {
+              if (!group.collapsed) continue
+              const firstCard = group.memberIds.map(id => cards[id]).find(Boolean)
+              if (!firstCard) continue
+              const groupRect = { x: firstCard.x, y: firstCard.y, width: 200, height: 48 }
+              for (const mid of group.memberIds) {
+                collapsedMembers.add(mid)
+                memberToGroupCard[mid] = groupRect
+              }
+            }
+            // Deduplicate connections that both map to the same group
+            const seen = new Set<string>()
+            return connections.map((conn) => {
+              const fromCollapsed = collapsedMembers.has(conn.from)
+              const toCollapsed = collapsedMembers.has(conn.to)
+              // Both endpoints are in the same collapsed group — hide the connection
+              if (fromCollapsed && toCollapsed && memberToGroupCard[conn.from] === memberToGroupCard[conn.to]) return null
+              // Resolve effective card rects
+              const fromCard = fromCollapsed ? memberToGroupCard[conn.from] : cards[conn.from]
+              const toCard = toCollapsed ? memberToGroupCard[conn.to] : cards[conn.to]
+              if (!fromCard || !toCard) return null
+              // Deduplicate: if multiple connections map to the same group endpoints, show only one
+              const dedupeKey = `${fromCollapsed ? 'g' : conn.from}-${toCollapsed ? 'g' : conn.to}`
+              if (seen.has(dedupeKey)) return null
+              seen.add(dedupeKey)
+              const fromDims = fromCollapsed ? fromCard : getEffectiveDimensions(cards[conn.from])
+              const toDims = toCollapsed ? toCard : getEffectiveDimensions(cards[conn.to])
 
-            const [fp, tp] = bestPortPair(from, to)
+            const [fp, tp] = bestPortPair(fromDims, toDims)
 
             const cpDist = Math.max(60, Math.sqrt((tp.x - fp.x) ** 2 + (tp.y - fp.y) ** 2) * 0.4)
             const cp1x = fp.x + fp.nx * cpDist
@@ -482,11 +522,12 @@ export function Canvas() {
                 )}
               </g>
             )
-          })}
+          })
+          })()}
 
           {/* Drawing-in-progress connection */}
           {drawingFrom && drawingMouse && cards[drawingFrom] && (() => {
-            const fromCard = cards[drawingFrom]
+            const fromCard = getEffectiveDimensions(cards[drawingFrom])
             const ports = getCardPorts(fromCard)
             // Find nearest port to mouse
             let nearest = ports[0]
@@ -510,7 +551,12 @@ export function Canvas() {
 
           {/* Port circles on all cards (visible when drawing) */}
           {/* Port circles — always rendered but only visible on hover or when drawing */}
-          {Object.entries(cards).map(([id, card]) => renderPorts(id, card, drawingFrom != null || hoverCardId === id))}
+          {Object.entries(cards).map(([id, card]) => {
+            // Hide ports for cards in collapsed groups
+            const inCollapsedGroup = Object.values(groups).some(g => g.collapsed && g.memberIds.includes(id))
+            if (inCollapsedGroup) return null
+            return renderPorts(id, getEffectiveDimensions(card), drawingFrom != null || hoverCardId === id)
+          })}
         </svg>
       </div>
 

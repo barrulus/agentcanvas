@@ -31,6 +31,182 @@ def generate_session_name(content: str, max_words: int = 6, max_chars: int = 50)
     return name or "Agent"
 
 
+async def clear_downstream(
+    from_card_id: str,
+    dashboard_id: str,
+    agent_mgr: "AgentManager",
+    visited: set[str] | None = None,
+) -> None:
+    """Recursively clear messages from all downstream agent sessions and view cards."""
+    if visited is None:
+        visited = set()
+    if from_card_id in visited:
+        return
+    visited.add(from_card_id)
+
+    from backend.sessions.store import load_dashboard_connections
+    connections = load_dashboard_connections(dashboard_id)
+    outgoing = [c for c in connections if c.from_card_id == from_card_id]
+
+    for conn in outgoing:
+        target_id = conn.to_card_id
+
+        # Clear agent session messages
+        target_session = agent_mgr.sessions.get(target_id)
+        if target_session:
+            target_session.messages = []
+            target_session.status = "idle"
+            target_session.cost_usd = 0.0
+            target_session.tokens = {"input": 0, "output": 0}
+            save_session(target_session)
+            await ws_manager.broadcast_dashboard(
+                "agent:status",
+                {"session_id": target_id, "status": "idle", "session": target_session.model_dump()},
+            )
+            # Recurse to clear downstream of this agent too
+            await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
+            continue
+
+        # Clear view card content
+        from backend.sessions.store import load_view_card, save_view_card
+        view_card = load_view_card(target_id)
+        if view_card:
+            view_card.content = ""
+            save_view_card(view_card)
+            await ws_manager.broadcast_dashboard(
+                "view_card:update",
+                {"card_id": target_id, "card": view_card.model_dump()},
+            )
+
+
+async def route_to_downstream(
+    from_card_id: str,
+    content: str,
+    dashboard_id: str,
+    agent_mgr: "AgentManager",
+    visited: set[str] | None = None,
+) -> None:
+    """Route content from any card (agent or input) to downstream connected cards."""
+    if visited is None:
+        visited = set()
+    if from_card_id in visited or len(visited) >= 10:
+        logger.warning("Cycle or depth limit in routing chain at %s", from_card_id)
+        return
+    visited.add(from_card_id)
+
+    from backend.sessions.store import load_dashboard_connections
+    connections = load_dashboard_connections(dashboard_id)
+    outgoing = [c for c in connections if c.from_card_id == from_card_id]
+
+    if not outgoing:
+        return
+
+    # Named routing: extract {{route:Name}} tags from content
+    route_tags = re.findall(r"\{\{route:([^}]+)\}\}", content)
+    # Strip route tags from the text that gets forwarded
+    if route_tags:
+        routed_content = re.sub(r"\{\{route:[^}]+\}\}\s*", "", content).strip()
+        if not routed_content:
+            # Route tag was the entire output (e.g. a decision router).
+            # Forward the last user message from the upstream agent instead.
+            upstream_session = agent_mgr.sessions.get(from_card_id)
+            if upstream_session:
+                user_msgs = [m for m in upstream_session.messages if m.role == "user"]
+                if user_msgs:
+                    routed_content = str(user_msgs[-1].content)
+            # If still empty, forward the raw content with tags stripped
+            if not routed_content:
+                routed_content = content
+    else:
+        routed_content = content
+
+    # Build a name→card_id lookup for all targets
+    def _get_target_name(target_id: str) -> str | None:
+        target_session = agent_mgr.sessions.get(target_id)
+        if target_session:
+            return target_session.name
+        from backend.sessions.store import load_view_card, load_input_card
+        vc = load_view_card(target_id)
+        if vc:
+            return vc.name
+        ic = load_input_card(target_id)
+        if ic:
+            return ic.name
+        return None
+
+    # If route tags exist, filter connections to only matching targets
+    if route_tags:
+        route_names = {t.strip().lower() for t in route_tags}
+        filtered = []
+        for c in outgoing:
+            target_name = _get_target_name(c.to_card_id)
+            if target_name and target_name.lower() in route_names:
+                filtered.append(c)
+        if filtered:
+            outgoing = filtered
+        else:
+            logger.warning(
+                "Named routing tags %s matched no downstream targets from %s",
+                route_tags, from_card_id,
+            )
+            return
+
+    async def _route_single(conn: "Connection") -> None:
+        if not AgentManager._evaluate_condition(conn.condition, content):
+            return
+
+        routed_text = routed_content
+        if not routed_text or not routed_text.strip():
+            logger.warning("Skipping empty routed content for connection %s", conn.id)
+            return
+
+        # Schema validation
+        if conn.output_schema:
+            parsed_json = AgentManager._extract_json(routed_text)
+            if parsed_json is not None:
+                try:
+                    import jsonschema
+                    jsonschema.validate(instance=parsed_json, schema=conn.output_schema)
+                except ImportError:
+                    logger.warning("jsonschema not installed — skipping validation")
+                except Exception as e:
+                    logger.warning("Schema validation failed for connection %s: %s", conn.id, e)
+                    return
+            else:
+                logger.warning("Output is not valid JSON for schema validation on connection %s", conn.id)
+                return
+
+        # Transform
+        if conn.transform:
+            routed_text = AgentManager._apply_transform(conn.transform, routed_text)
+
+        target_id = conn.to_card_id
+        await ws_manager.broadcast_dashboard(
+            "flow:routed",
+            {"from_card_id": from_card_id, "to_card_id": target_id, "connection_id": conn.id},
+        )
+
+        # Target is an agent session
+        target_session = agent_mgr.sessions.get(target_id)
+        if target_session:
+            await agent_mgr.send_message(target_id, routed_text)
+            return
+
+        # Target is a view card
+        from backend.sessions.store import load_view_card, save_view_card
+        view_card = load_view_card(target_id)
+        if view_card:
+            view_card.content = routed_text
+            save_view_card(view_card)
+            await ws_manager.broadcast_dashboard(
+                "view_card:update",
+                {"card_id": target_id, "card": view_card.model_dump()},
+            )
+
+    from backend.agents.models import Connection
+    await asyncio.gather(*(_route_single(c) for c in outgoing))
+
+
 class AgentManager:
     def __init__(self) -> None:
         self.sessions: dict[str, AgentSession] = {}
@@ -97,10 +273,25 @@ class AgentManager:
         )
         return session
 
+    async def _ensure_provider_ready(self, session: AgentSession) -> None:
+        """Ensure the provider has been initialized for this session."""
+        provider = get_provider(session.provider_id)
+        if hasattr(provider, '_sessions') and session.id not in provider._sessions:
+            await provider.start_session(
+                session.id, session.model, session.system_prompt,
+                session.cwd,
+            )
+
     async def send_message(self, session_id: str, content: str) -> None:
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
+        if not content or not content.strip():
+            logger.warning("Ignoring empty message for session %s", session_id)
+            return
+
+        # Ensure provider is initialized (needed for restored or idle sessions)
+        await self._ensure_provider_ready(session)
 
         # Add user message
         user_msg = Message(role="user", content=content)
@@ -627,15 +818,8 @@ class AgentManager:
 
         return re.sub(r"\{\{([\w.]+)\}\}", replace_placeholder, transform)
 
-    async def _route_output(self, session_id: str, visited: set[str] | None = None) -> None:
+    async def _route_output(self, session_id: str) -> None:
         """Route a completed agent's output to downstream connected cards."""
-        if visited is None:
-            visited = set()
-        if session_id in visited or len(visited) >= 10:
-            logger.warning("Cycle or depth limit in routing chain at %s", session_id)
-            return
-        visited.add(session_id)
-
         session = self.sessions.get(session_id)
         if not session or not session.dashboard_id:
             return
@@ -646,70 +830,7 @@ class AgentManager:
             return
         output_text = str(assistant_msgs[-1].content)
 
-        # Load connections for this dashboard
-        from backend.sessions.store import load_dashboard_connections
-        connections = load_dashboard_connections(session.dashboard_id)
-        outgoing = [c for c in connections if c.from_card_id == session_id]
-
-        if not outgoing:
-            return
-
-        async def route_to(conn: "Connection") -> None:
-            if not self._evaluate_condition(conn.condition, output_text):
-                return
-
-            routed_text = output_text
-
-            # Schema validation
-            if conn.output_schema:
-                parsed_json = self._extract_json(routed_text)
-                if parsed_json is not None:
-                    try:
-                        import jsonschema
-                        jsonschema.validate(instance=parsed_json, schema=conn.output_schema)
-                    except ImportError:
-                        logger.warning("jsonschema not installed — skipping validation")
-                    except Exception as e:
-                        logger.warning(
-                            "Schema validation failed for connection %s: %s", conn.id, e
-                        )
-                        return
-                else:
-                    logger.warning(
-                        "Output is not valid JSON for schema validation on connection %s", conn.id
-                    )
-                    return
-
-            # Transform application
-            if conn.transform:
-                routed_text = self._apply_transform(conn.transform, routed_text)
-
-            target_id = conn.to_card_id
-            # Broadcast routing event for UI animation
-            await ws_manager.broadcast_dashboard(
-                "flow:routed",
-                {"from_card_id": session_id, "to_card_id": target_id, "connection_id": conn.id},
-            )
-
-            # Check if target is an agent session
-            target_session = self.sessions.get(target_id)
-            if target_session:
-                await self.send_message(target_id, routed_text)
-                return
-
-            # Check if target is a view card
-            from backend.sessions.store import load_view_card, save_view_card
-            view_card = load_view_card(target_id)
-            if view_card:
-                view_card.content = routed_text
-                save_view_card(view_card)
-                await ws_manager.broadcast_dashboard(
-                    "view_card:update",
-                    {"card_id": target_id, "card": view_card.model_dump()},
-                )
-
-        from backend.agents.models import Connection
-        await asyncio.gather(*(route_to(c) for c in outgoing))
+        await route_to_downstream(session_id, output_text, session.dashboard_id, self)
 
     def restore_sessions(self) -> None:
         """Load persisted sessions from disk on startup."""

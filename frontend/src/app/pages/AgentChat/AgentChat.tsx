@@ -48,6 +48,8 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
   const dispatch = useDispatch<AppDispatch>()
   const session = useSelector((s: RootState) => s.agents.sessions[sessionId])
   const templates = useSelector((s: RootState) => s.templates.templates)
+  const connections = useSelector((s: RootState) => s.canvas.connections)
+  const hasUpstream = connections.some(c => c.to === sessionId)
   const [input, setInput] = useState('')
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -239,52 +241,63 @@ export function AgentChat({ sessionId }: { sessionId: string }) {
         )}
       </div>
 
-      <div style={{ position: 'relative', padding: 8, borderTop: '1px solid #222', display: 'flex', gap: 8 }}>
-        {slashSuggestions.length > 0 && (
-          <div style={{
-            position: 'absolute', bottom: '100%', left: 8, right: 8,
-            background: '#1a1a2e', border: '1px solid #333', borderRadius: 6,
-            overflow: 'hidden', zIndex: 10,
-          }}>
-            {slashSuggestions.map(s => (
-              <div
-                key={s.slug}
-                onClick={() => selectSlashSuggestion(s.slug)}
-                style={{
-                  padding: '6px 10px', cursor: 'pointer', fontSize: 12,
-                  display: 'flex', gap: 8, alignItems: 'center',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#2a2a3e')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              >
-                <span style={{ color: '#4fc3f7' }}>/{s.slug}</span>
-                <span style={{ color: '#666' }}>{s.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }}}
-          placeholder="Send a message... (/ for templates)"
-          style={{
-            flex: 1, padding: '6px 10px',
-            background: '#12121e', color: '#e0e0e0',
-            border: '1px solid #333', borderRadius: 6,
-            fontSize: 12, fontFamily: 'inherit',
-          }}
-        />
-        <button
-          onClick={handleSend}
-          style={{
-            padding: '6px 12px', background: '#4fc3f7', color: '#000',
-            border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer',
-          }}
-        >
-          Send
-        </button>
-      </div>
+      {hasUpstream ? (
+        <div style={{
+          padding: '8px 12px', borderTop: '1px solid #222',
+          display: 'flex', alignItems: 'center', gap: 6,
+          color: '#555', fontSize: 11, fontStyle: 'italic',
+        }}>
+          <span style={{ color: '#4fc3f7', fontSize: 13 }}>&#8594;</span>
+          Receives input from upstream connection
+        </div>
+      ) : (
+        <div style={{ position: 'relative', padding: 8, borderTop: '1px solid #222', display: 'flex', gap: 8 }}>
+          {slashSuggestions.length > 0 && (
+            <div style={{
+              position: 'absolute', bottom: '100%', left: 8, right: 8,
+              background: '#1a1a2e', border: '1px solid #333', borderRadius: 6,
+              overflow: 'hidden', zIndex: 10,
+            }}>
+              {slashSuggestions.map(s => (
+                <div
+                  key={s.slug}
+                  onClick={() => selectSlashSuggestion(s.slug)}
+                  style={{
+                    padding: '6px 10px', cursor: 'pointer', fontSize: 12,
+                    display: 'flex', gap: 8, alignItems: 'center',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#2a2a3e')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ color: '#4fc3f7' }}>/{s.slug}</span>
+                  <span style={{ color: '#666' }}>{s.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }}}
+            placeholder="Send a message... (/ for templates)"
+            style={{
+              flex: 1, padding: '6px 10px',
+              background: '#12121e', color: '#e0e0e0',
+              border: '1px solid #333', borderRadius: 6,
+              fontSize: 12, fontFamily: 'inherit',
+            }}
+          />
+          <button
+            onClick={handleSend}
+            style={{
+              padding: '6px 12px', background: '#4fc3f7', color: '#000',
+              border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            Send
+          </button>
+        </div>
+      )}
     </div>
   )
 }

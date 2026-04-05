@@ -2,15 +2,15 @@ import { useRef, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
-import { moveCard, resizeCard, bringToFront, removeCard, setSelected } from '@/shared/state/canvasSlice'
-import { removeSession } from '@/shared/state/agentsSlice'
+import { moveCard, resizeCard, bringToFront, removeCard, setSelected, toggleCardCollapsed } from '@/shared/state/canvasSlice'
+import { removeSession, updateStatus } from '@/shared/state/agentsSlice'
 import { AgentChat } from '../AgentChat/AgentChat'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 interface CardPosition {
-  session_id: string; x: number; y: number; width: number; height: number; zOrder: number
+  session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,7 +29,10 @@ const PROVIDER_LABELS: Record<string, string> = {
 export function AgentCard({ card }: { card: CardPosition }) {
   const dispatch = useDispatch<AppDispatch>()
   const session = useSelector((s: RootState) => s.agents.sessions[card.session_id])
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false)  // chat view expansion
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editSystemPrompt, setEditSystemPrompt] = useState('')
   const isDragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, cardX: 0, cardY: 0 })
 
@@ -69,7 +72,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [card, dispatch])
+  }, [card, dispatch, selectedCards])
 
   const handleResizeStart = useCallback((e: React.MouseEvent, dir: string) => {
     e.stopPropagation()
@@ -104,8 +107,53 @@ export function AgentCard({ card }: { card: CardPosition }) {
   if (!session) return null
 
   const statusColor = STATUS_COLORS[session.status] || '#666'
-  const h = expanded ? Math.max(card.height, 500) : card.height
+  const isCollapsed = card.collapsed
+  const h = isCollapsed ? 44 : expanded ? Math.max(card.height, 500) : card.height
   const isSelected = selectedCards.includes(card.session_id)
+
+  if (isCollapsed) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+        onMouseDown={handleDragStart}
+        onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
+        style={{
+          position: 'absolute',
+          left: card.x,
+          top: card.y,
+          width: 200,
+          height: 44,
+          zIndex: card.zOrder,
+          background: '#1a1a2e',
+          border: isSelected ? '2px solid #66bb6a' : `1px solid ${statusColor}44`,
+          borderRadius: 10,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 14px',
+          gap: 8,
+          cursor: 'grab',
+          userSelect: 'none',
+          boxShadow: `0 2px 12px rgba(0,0,0,0.3), 0 0 0 1px ${statusColor}22`,
+        }}
+      >
+        <div style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: statusColor,
+          boxShadow: session.status === 'running' ? `0 0 8px ${statusColor}` : 'none',
+          flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#e0e0e0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+          {session.name || 'Agent'}
+        </span>
+        <span style={{ fontSize: 9, color: '#555', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {session.model}
+        </span>
+      </motion.div>
+    )
+  }
 
   return (
     <motion.div
@@ -133,7 +181,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
       {/* Header / drag handle */}
       <div
         onMouseDown={handleDragStart}
-        onDoubleClick={() => setExpanded(!expanded)}
+        onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
         style={{
           padding: '8px 12px',
           display: 'flex',
@@ -220,6 +268,25 @@ export function AgentCard({ card }: { card: CardPosition }) {
           </button>
         )}
 
+        {/* Edit button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setEditName(session.name || '')
+            setEditSystemPrompt(session.system_prompt || '')
+            setEditing(true)
+          }}
+          style={{
+            background: 'none', border: 'none', color: '#555', cursor: 'pointer',
+            fontSize: 12, lineHeight: 1, padding: '0 2px',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#4fc3f7')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+          title="Edit agent"
+        >
+          &#9998;
+        </button>
+
         {/* Close button */}
         <button
           onClick={(e) => {
@@ -241,7 +308,10 @@ export function AgentCard({ card }: { card: CardPosition }) {
       </div>
 
       {/* Content area */}
-      <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+      <div
+        onDoubleClick={() => setExpanded(!expanded)}
+        style={{ flex: 1, overflow: 'auto', position: 'relative' }}
+      >
         {expanded ? (
           <AgentChat sessionId={card.session_id} />
         ) : (
@@ -269,6 +339,73 @@ export function AgentCard({ card }: { card: CardPosition }) {
           }}
         />
       ))}
+
+      {/* Edit dialog */}
+      {editing && (
+        <div
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', inset: 0, background: '#1a1a2eee',
+            display: 'flex', flexDirection: 'column', padding: 16, gap: 8,
+            zIndex: 20, borderRadius: 12, overflow: 'auto',
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0', marginBottom: 4 }}>Edit Agent</span>
+
+          <label style={{ fontSize: 11, color: '#888' }}>Name</label>
+          <input
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            style={{
+              padding: '6px 10px', background: '#12121e', color: '#e0e0e0',
+              border: '1px solid #333', borderRadius: 4, fontSize: 12,
+            }}
+          />
+
+          <label style={{ fontSize: 11, color: '#888' }}>System prompt</label>
+          <textarea
+            value={editSystemPrompt}
+            onChange={e => setEditSystemPrompt(e.target.value)}
+            style={{
+              padding: '6px 10px', background: '#12121e', color: '#e0e0e0',
+              border: '1px solid #333', borderRadius: 4, fontSize: 12,
+              minHeight: 80, resize: 'vertical', fontFamily: 'inherit', flex: 1,
+            }}
+          />
+
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
+            <button
+              onClick={() => setEditing(false)}
+              style={{
+                padding: '6px 12px', background: 'transparent', color: '#888',
+                border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 12,
+              }}
+            >Cancel</button>
+            <button
+              onClick={async () => {
+                const updates: Record<string, any> = {}
+                if (editName.trim() && editName.trim() !== session.name) updates.name = editName.trim()
+                if (editSystemPrompt !== (session.system_prompt || '')) updates.system_prompt = editSystemPrompt
+                if (Object.keys(updates).length > 0) {
+                  const res = await fetch(`/api/sessions/${card.session_id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates),
+                  })
+                  const updated = await res.json()
+                  dispatch(updateStatus({ sessionId: card.session_id, status: updated.status, session: { ...updated, streamingMessage: null } }))
+                }
+                setEditing(false)
+              }}
+              style={{
+                padding: '6px 12px', background: '#4fc3f7', color: '#000',
+                border: 'none', borderRadius: 4, fontWeight: 600, cursor: 'pointer', fontSize: 12,
+              }}
+            >Save</button>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }

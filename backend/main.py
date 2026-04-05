@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.agents.agent_manager import agent_manager
+from backend.agents.input_manager import input_manager
 from backend.agents.ws_manager import ws_manager
 from backend.providers.registry import get_provider, get_registry, get_tool_executor, init_providers, list_providers
 from backend.sessions.store import save_layout, load_layout, save_session  # noqa: F401 - kept for backward compat
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     init_providers()
     agent_manager.restore_sessions()
+    input_manager.restore_input_cards()
     from backend.templates.store import seed_builtin_templates
     seed_builtin_templates()
     yield
@@ -113,6 +115,12 @@ async def update_session(session_id: str, request: Request):
         return JSONResponse({"error": "Not found"}, status_code=404)
     if "name" in body:
         session.name = body["name"]
+    if "system_prompt" in body:
+        session.system_prompt = body["system_prompt"]
+        # Update provider's session state too
+        provider = get_provider(session.provider_id)
+        if hasattr(provider, '_sessions') and session.id in provider._sessions:
+            provider._sessions[session.id].system_prompt = body["system_prompt"]
     save_session(session)
     await ws_manager.broadcast_dashboard(
         "agent:status",
@@ -218,6 +226,84 @@ async def update_view_card(card_id: str, request: Request):
 async def delete_view_card(card_id: str):
     from backend.sessions.store import delete_view_card_file
     delete_view_card_file(card_id)
+    return {"ok": True}
+
+
+# --- Input Cards ---
+
+
+@app.post("/api/input-cards")
+async def create_input_card(request: Request):
+    body = await request.json()
+    card = input_manager.create_input_card(
+        name=body.get("name", "Input"),
+        source_type=body.get("source_type", "chat"),
+        config=body.get("config", {}),
+        dashboard_id=body.get("dashboard_id"),
+    )
+    return card.model_dump()
+
+
+@app.get("/api/input-cards")
+async def list_input_cards(dashboard_id: str = ""):
+    cards = input_manager.list_input_cards(dashboard_id=dashboard_id or None)
+    return {"input_cards": [c.model_dump() for c in cards]}
+
+
+@app.get("/api/input-cards/{card_id}")
+async def get_input_card(card_id: str):
+    card = input_manager.get_input_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.put("/api/input-cards/{card_id}")
+async def update_input_card(card_id: str, request: Request):
+    body = await request.json()
+    card = input_manager.update_input_card(card_id, body)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.delete("/api/input-cards/{card_id}")
+async def delete_input_card(card_id: str):
+    input_manager.delete_input_card(card_id)
+    return {"ok": True}
+
+
+@app.post("/api/input-cards/{card_id}/send")
+async def send_input_card(card_id: str, request: Request):
+    """Manual send from the UI chat input."""
+    body = await request.json()
+    content = body.get("content", "")
+    if not content:
+        return JSONResponse({"error": "No content"}, status_code=400)
+    await input_manager.send_to_downstream(card_id, content)
+    return {"ok": True}
+
+
+@app.post("/api/input-cards/{card_id}/webhook")
+async def input_card_webhook(card_id: str, request: Request):
+    """Receive external webhook data and route to downstream agents."""
+    card = input_manager.get_input_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if card.source_type != "webhook":
+        return JSONResponse({"error": "Card is not in webhook mode"}, status_code=400)
+    body = await request.json()
+    content = body.get("content", "") or body.get("text", "") or body.get("data", "")
+    if isinstance(content, dict | list):
+        import json as _json
+        content = _json.dumps(content)
+    if not content:
+        return JSONResponse({"error": "No content found in payload"}, status_code=400)
+    await input_manager.send_to_downstream(card_id, str(content))
+    await ws_manager.broadcast_dashboard(
+        "input_card:triggered",
+        {"card_id": card_id, "source": "webhook"},
+    )
     return {"ok": True}
 
 

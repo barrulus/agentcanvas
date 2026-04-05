@@ -55,7 +55,8 @@ class CardPosition(BaseModel):
     width: float = 480
     height: float = 280
     z_order: int = 0
-    card_type: Literal["agent", "view"] = "agent"
+    card_type: Literal["agent", "view", "input"] = "agent"
+    collapsed: bool = False
 
 
 class ViewCard(BaseModel):
@@ -81,6 +82,15 @@ class CardGroup(BaseModel):
     member_ids: list[str] = Field(default_factory=list)
     collapsed: bool = False
     color: Optional[str] = None
+
+
+class InputCard(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Input"
+    source_type: Literal["chat", "webhook", "file"] = "chat"
+    config: dict = Field(default_factory=dict)  # e.g. {"path": "/tmp/watch.txt"} for file mode
+    dashboard_id: Optional[str] = None
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 
 
 class DashboardLayout(BaseModel):

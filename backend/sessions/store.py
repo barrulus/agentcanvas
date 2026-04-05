@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, ViewCard
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, InputCard, ViewCard
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,45 @@ def load_all_view_cards() -> list[ViewCard]:
 
 def delete_view_card_file(card_id: str) -> None:
     path = _view_cards_dir() / f"{card_id}.json"
+    path.unlink(missing_ok=True)
+
+
+# --- Input Cards ---
+
+def _input_cards_dir() -> Path:
+    d = _data_dir() / "input_cards"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def save_input_card(card: InputCard) -> None:
+    path = _input_cards_dir() / f"{card.id}.json"
+    path.write_text(json.dumps(card.model_dump(), indent=2))
+
+
+def load_input_card(card_id: str) -> InputCard | None:
+    path = _input_cards_dir() / f"{card_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return InputCard.model_validate_json(path.read_text())
+    except Exception:
+        logger.warning("Failed to load input card %s", card_id)
+        return None
+
+
+def load_all_input_cards() -> list[InputCard]:
+    cards = []
+    for path in _input_cards_dir().glob("*.json"):
+        try:
+            cards.append(InputCard.model_validate_json(path.read_text()))
+        except Exception:
+            logger.warning("Skipping corrupt input card file %s", path.name)
+    return cards
+
+
+def delete_input_card_file(card_id: str) -> None:
+    path = _input_cards_dir() / f"{card_id}.json"
     path.unlink(missing_ok=True)
 
 

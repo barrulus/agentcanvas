@@ -4,6 +4,7 @@ import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
 import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup } from '@/shared/state/canvasSlice'
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
+import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
 import { fetchModes } from '@/shared/state/modesSlice'
 import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
@@ -45,6 +46,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null)
   const [templateFields, setTemplateFields] = useState<Record<string, string>>({})
   const templates = useSelector((s: RootState) => s.templates.templates)
+  const [showInputMenu, setShowInputMenu] = useState(false)
 
   useEffect(() => {
     dispatch(fetchProviders())
@@ -65,6 +67,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         dispatch(loadLayout(currentDashboardId))
         dispatch(fetchSessions(currentDashboardId))
         dispatch(fetchViewCards(currentDashboardId))
+        dispatch(fetchInputCards(currentDashboardId))
       }
     })
   }, [dispatch])
@@ -125,7 +128,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     const effectivePrompt = selectedTemplate
       ? renderTemplate(selectedTemplate.prompt, templateFields)
       : prompt.trim()
-    if (!selectedProvider || !selectedModel || !effectivePrompt) return
+    if (!selectedProvider || !selectedModel) return
     const result = await dispatch(createSession({
       provider_id: selectedProvider,
       model: selectedModel,
@@ -137,7 +140,9 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     })).unwrap()
 
     dispatch(placeCard({ sessionId: result.id }))
-    wsManager.sendMessage(result.id, effectivePrompt)
+    if (effectivePrompt) {
+      wsManager.sendMessage(result.id, effectivePrompt)
+    }
 
     setShowDialog(false)
     setAgentName('')
@@ -154,6 +159,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     dispatch(loadLayout(dashboardId))
     dispatch(fetchSessions(dashboardId))
     dispatch(fetchViewCards(dashboardId))
+    dispatch(fetchInputCards(dashboardId))
   }
 
   const handleCreateViewCard = async () => {
@@ -162,6 +168,27 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       dashboard_id: currentDashboardId,
     })).unwrap()
     dispatch(placeCard({ sessionId: result.id, card_type: 'view' }))
+  }
+
+  const handleCreateInputCard = async (sourceType: 'chat' | 'webhook' | 'file') => {
+    setShowInputMenu(false)
+    const config: Record<string, any> = {}
+    let name = 'Input'
+    if (sourceType === 'file') {
+      const path = window.prompt('File or directory path to watch:')
+      if (!path?.trim()) return
+      config.path = path.trim()
+      name = path.trim().split('/').pop() || 'File Input'
+    } else if (sourceType === 'webhook') {
+      name = 'Webhook'
+    }
+    const result = await dispatch(createInputCard({
+      name,
+      source_type: sourceType,
+      config,
+      dashboard_id: currentDashboardId,
+    })).unwrap()
+    dispatch(placeCard({ sessionId: result.id, card_type: 'input' }))
   }
 
   const handleNewDashboard = async () => {
@@ -301,6 +328,48 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
           Group ({selectedCards.length})
         </button>
       )}
+
+      {/* Input Card dropdown */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setShowInputMenu(!showInputMenu)}
+          style={{
+            padding: '6px 12px',
+            background: 'transparent',
+            color: '#4fc3f7',
+            border: '1px solid #1a4a5e',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+          title="Add an input card (workflow entry point)"
+        >
+          + Input Card
+        </button>
+        {showInputMenu && (
+          <div
+            style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4,
+              background: '#1a1a2e', border: '1px solid #333', borderRadius: 8,
+              padding: 4, zIndex: 10000, minWidth: 160,
+            }}
+          >
+            <button onClick={() => handleCreateInputCard('chat')} style={inputMenuItemStyle}>
+              Chat Input
+              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>Manual text entry</span>
+            </button>
+            <button onClick={() => handleCreateInputCard('webhook')} style={inputMenuItemStyle}>
+              Webhook
+              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>HTTP POST endpoint</span>
+            </button>
+            <button onClick={() => handleCreateInputCard('file')} style={inputMenuItemStyle}>
+              File Watcher
+              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>Watch file for changes</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       <button
         onClick={handleCreateViewCard}
@@ -570,14 +639,14 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
               </button>
               <button
                 onClick={handleCreate}
-                disabled={!selectedProvider || !selectedModel || (!prompt.trim() && !selectedTemplate)}
+                disabled={!selectedProvider || !selectedModel}
                 style={{
                   padding: '8px 16px', background: '#4fc3f7', color: '#000',
                   border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13,
-                  opacity: (!selectedProvider || !selectedModel || (!prompt.trim() && !selectedTemplate)) ? 0.4 : 1,
+                  opacity: (!selectedProvider || !selectedModel) ? 0.4 : 1,
                 }}
               >
-                Create & Send
+                {(prompt.trim() || selectedTemplate) ? 'Create & Send' : 'Create'}
               </button>
             </div>
           </div>
@@ -585,4 +654,10 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       )}
     </div>
   )
+}
+
+const inputMenuItemStyle: React.CSSProperties = {
+  display: 'block', width: '100%', padding: '6px 12px',
+  background: 'transparent', color: '#ccc', border: 'none',
+  fontSize: 12, cursor: 'pointer', textAlign: 'left', borderRadius: 4,
 }

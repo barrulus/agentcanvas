@@ -70,7 +70,8 @@ interface CardPosition {
   width: number
   height: number
   zOrder: number
-  card_type?: 'agent' | 'view'
+  card_type?: 'agent' | 'view' | 'input'
+  collapsed?: boolean
 }
 
 interface Connection {
@@ -146,7 +147,7 @@ const canvasSlice = createSlice({
   name: 'canvas',
   initialState,
   reducers: {
-    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' }>) {
+    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' | 'input' }>) {
       const pos = action.payload.x !== undefined
         ? { x: action.payload.x, y: action.payload.y! }
         : findOpenPosition(state.cards)
@@ -189,6 +190,12 @@ const canvasSlice = createSlice({
       // Remove from any groups
       for (const g of Object.values(state.groups)) {
         g.memberIds = g.memberIds.filter(id => id !== action.payload)
+      }
+    },
+    toggleCardCollapsed(state, action: PayloadAction<string>) {
+      const card = state.cards[action.payload]
+      if (card) {
+        card.collapsed = !card.collapsed
       }
     },
     addConnection(state, action: PayloadAction<{ from: string; to: string; condition?: string }>) {
@@ -316,5 +323,5 @@ const canvasSlice = createSlice({
   },
 })
 
-export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
+export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, toggleCardCollapsed, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
 export const canvasReducer = canvasSlice.reducer

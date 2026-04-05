@@ -6,6 +6,7 @@ import { modesReducer } from './modesSlice'
 import { templatesReducer } from './templatesSlice'
 import { viewCardsReducer } from './viewCardsSlice'
 import { commandPolicyReducer } from './commandPolicySlice'
+import { inputCardsReducer } from './inputCardsSlice'
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +17,7 @@ export const store = configureStore({
     templates: templatesReducer,
     viewCards: viewCardsReducer,
     commandPolicies: commandPolicyReducer,
+    inputCards: inputCardsReducer,
   },
 })
 

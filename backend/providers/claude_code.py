@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path  # noqa: used in _build_mcp_config
 from typing import AsyncIterator, Optional
-from uuid import uuid4, UUID
+from uuid import uuid4
 
 from backend.providers.base import (
     AgentProvider,
@@ -34,7 +34,6 @@ class _SessionState:
         self.model = model
         self.system_prompt = system_prompt
         self.cwd = cwd
-        self.started = False  # True after first message has been sent
         self.proc: Optional[asyncio.subprocess.Process] = None
 
 
@@ -70,12 +69,8 @@ class ClaudeCodeProvider(AgentProvider):
             "claude", "-p",
             "--output-format", "stream-json",
             "--verbose", "--include-partial-messages",
+            "--dangerously-skip-permissions",
         ]
-
-        # Build allowed tools list from all enabled MCP servers
-        allowed_tools = self._get_allowed_tools()
-        if allowed_tools:
-            cmd.extend(["--allowedTools"] + allowed_tools)
 
         if state.model:
             cmd.extend(["--model", state.model])
@@ -83,17 +78,11 @@ class ClaudeCodeProvider(AgentProvider):
         if state.system_prompt:
             cmd.extend(["--system-prompt", state.system_prompt])
 
-        # Claude CLI requires UUID with hyphens
-        cli_session_id = str(UUID(session_id)) if len(session_id) == 32 else session_id
+        # Always use a fresh CLI session — each message is independent
+        cli_session_id = str(uuid4())
+        cmd.extend(["--session-id", cli_session_id])
 
-        if state.started:
-            cmd.extend(["--resume", cli_session_id])
-        else:
-            cmd.extend(["--session-id", cli_session_id])
-            state.started = True
-
-        # The prompt text MUST come before --mcp-config since
-        # --mcp-config is variadic and consumes all remaining positional args.
+        # Prompt MUST come before --mcp-config (which is variadic and eats remaining args)
         cmd.append(content)
 
         # Inject invoke_agent MCP server
@@ -235,13 +224,22 @@ class ClaudeCodeProvider(AgentProvider):
         """Create a temporary MCP config JSON file with all enabled MCP servers."""
         mcp_servers: dict[str, dict] = {}
 
-        # Built-in: agentcanvas invoke_agent server
-        server_script = Path(__file__).parent.parent / "mcp" / "invoke_agent_server.py"
-        if server_script.exists():
-            mcp_servers["agentcanvas"] = {
-                "command": sys.executable,
-                "args": [str(server_script)],
-            }
+        # Built-in: agentcanvas invoke_agent server (only for top-level agents, not workflow nodes)
+        from backend.agents.agent_manager import agent_manager
+        session = agent_manager.sessions.get(session_id)
+        has_upstream = False
+        if session and session.dashboard_id:
+            from backend.sessions.store import load_dashboard_connections
+            connections = load_dashboard_connections(session.dashboard_id)
+            has_upstream = any(c.to_card_id == session_id for c in connections)
+
+        if not has_upstream:
+            server_script = Path(__file__).parent.parent / "mcp" / "invoke_agent_server.py"
+            if server_script.exists():
+                mcp_servers["agentcanvas"] = {
+                    "command": sys.executable,
+                    "args": [str(server_script)],
+                }
 
         # Add all enabled user-configured stdio MCP servers
         if self._registry:
