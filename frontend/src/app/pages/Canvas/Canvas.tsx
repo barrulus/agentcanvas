@@ -5,6 +5,7 @@ import { RootState, AppDispatch } from '@/shared/state/store'
 import { AgentCard } from './AgentCard'
 import { InputCardComponent } from './InputCardComponent'
 import { ViewCardComponent } from './ViewCardComponent'
+import { GateCardComponent } from './GateCardComponent'
 import { debouncedSaveLayout, addConnection, removeConnection, updateConnectionContract, toggleGroupCollapsed, moveGroup, deleteGroup, renameGroup } from '@/shared/state/canvasSlice'
 
 type Port = { x: number; y: number; nx: number; ny: number }
@@ -58,6 +59,8 @@ export function Canvas() {
   const connections = useSelector((s: RootState) => s.canvas.connections)
   const groups = useSelector((s: RootState) => s.canvas.groups)
   const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
+  const constraints = useSelector((s: RootState) => s.canvas.constraints)
+  const blockedConnections = useSelector((s: RootState) => s.canvas.blockedConnections)
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
 
@@ -69,7 +72,7 @@ export function Canvas() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; connId: string } | null>(null)
 
   // Connection editor popup
-  const [editingConn, setEditingConn] = useState<{ connId: string; condition: string; outputSchema: string; transform: string } | null>(null)
+  const [editingConn, setEditingConn] = useState<{ connId: string; condition: string; outputSchema: string; transform: string; gateRule: string } | null>(null)
 
   // Card hover state (for showing ports)
   const [hoverCardId, setHoverCardId] = useState<string | null>(null)
@@ -78,10 +81,10 @@ export function Canvas() {
   const groupDrag = useRef<{ groupId: string; startX: number; startY: number } | null>(null)
 
   useEffect(() => {
-    if (Object.keys(cards).length > 0 || connections.length > 0 || Object.keys(groups).length > 0) {
-      debouncedSaveLayout(currentDashboardId, cards, connections, groups)
+    if (Object.keys(cards).length > 0 || connections.length > 0 || Object.keys(groups).length > 0 || constraints) {
+      debouncedSaveLayout(currentDashboardId, cards, connections, groups, constraints)
     }
-  }, [cards, connections, groups, currentDashboardId])
+  }, [cards, connections, groups, constraints, currentDashboardId])
 
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
@@ -222,6 +225,7 @@ export function Canvas() {
       condition: conn?.condition || '',
       outputSchema: conn?.output_schema ? JSON.stringify(conn.output_schema, null, 2) : '',
       transform: conn?.transform || '',
+      gateRule: conn?.gate_rule || '',
     })
     setContextMenu(null)
   }, [contextMenu, connections])
@@ -242,6 +246,7 @@ export function Canvas() {
       condition: editingConn.condition || undefined,
       output_schema: parsedSchema,
       transform: editingConn.transform || undefined,
+      gate_rule: editingConn.gateRule || undefined,
     }))
     setEditingConn(null)
   }, [editingConn, dispatch])
@@ -429,6 +434,8 @@ export function Canvas() {
               ? <ViewCardComponent key={card.session_id} card={card} />
               : card.card_type === 'input'
               ? <InputCardComponent key={card.session_id} card={card} />
+              : card.card_type === 'gate'
+              ? <GateCardComponent key={card.session_id} card={card} />
               : <AgentCard key={card.session_id} card={card} />
           })}
         </AnimatePresence>
@@ -486,8 +493,9 @@ export function Canvas() {
             const aSize = 14, aW = 7
             const bx = tp.x - nx * aSize, by = tp.y - ny * aSize
 
-            const hasContract = conn.output_schema || conn.transform
-            const color = hasContract ? '#b39ddb' : conn.condition ? '#ffa726' : '#4fc3f7'
+            const hasContract = conn.output_schema || conn.transform || conn.gate_rule
+            const isBlocked = conn.id ? !!blockedConnections[conn.id] : false
+            const color = isBlocked ? '#ef5350' : hasContract ? '#b39ddb' : conn.condition ? '#ffa726' : '#4fc3f7'
             const dashArray = hasContract ? '8 4' : undefined
             const midX = (fp.x + tp.x) / 2
             const midY = (fp.y + tp.y) / 2
@@ -515,9 +523,14 @@ export function Canvas() {
                     {conn.condition}
                   </text>
                 )}
-                {hasContract && (
+                {hasContract && !isBlocked && (
                   <text x={midX} y={midY + (conn.condition ? 8 : -8)} fill="#b39ddb" fontSize={9} textAnchor="middle" style={{ pointerEvents: 'none' }}>
-                    {conn.output_schema ? 'schema' : ''}{conn.output_schema && conn.transform ? ' + ' : ''}{conn.transform ? 'transform' : ''}
+                    {conn.output_schema ? 'schema' : ''}{conn.output_schema && conn.transform ? ' + ' : ''}{conn.transform ? 'transform' : ''}{conn.gate_rule ? (conn.output_schema || conn.transform ? ' + ' : '') + 'gate' : ''}
+                  </text>
+                )}
+                {isBlocked && conn.id && (
+                  <text x={midX} y={midY + 12} fill="#ef5350" fontSize={10} fontWeight="600" textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                    BLOCKED: {blockedConnections[conn.id]}
                   </text>
                 )}
               </g>
@@ -656,10 +669,25 @@ export function Canvas() {
               onChange={e => setEditingConn(c => c ? { ...c, transform: e.target.value } : c)}
               placeholder="{{output.summary}}"
               style={{
-                width: '100%', padding: '8px 12px', marginBottom: 16,
+                width: '100%', padding: '8px 12px', marginBottom: 12,
                 background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
                 borderRadius: 6, fontSize: 12, minHeight: 48, resize: 'vertical',
                 fontFamily: 'monospace', boxSizing: 'border-box',
+              }}
+            />
+
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>
+              Gate rule (circuit breaker)
+              <span style={{ color: '#555', fontWeight: 400 }}> — halts routing if output fails check</span>
+            </label>
+            <input
+              value={editingConn.gateRule}
+              onChange={e => setEditingConn(c => c ? { ...c, gateRule: e.target.value } : c)}
+              placeholder="require:approved, reject:error, min_length:100, max_length:5000"
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 16,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
               }}
             />
 

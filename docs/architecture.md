@@ -28,6 +28,7 @@ AgentCanvas is a full-stack application with a FastAPI backend and React fronten
 | Main | `backend/main.py` | FastAPI app, all REST + WebSocket endpoints |
 | Agent Manager | `backend/agents/agent_manager.py` | Session lifecycle, streaming, output routing |
 | Input Manager | `backend/agents/input_manager.py` | Input card lifecycle, file watchers, downstream routing |
+| Gate Manager | `backend/agents/gate_manager.py` | Gate (arbiter) card lifecycle, input buffering, LLM resolution |
 | WS Manager | `backend/agents/ws_manager.py` | WebSocket connection pool for dashboard + session channels |
 | Models | `backend/agents/models.py` | Pydantic models for all data structures |
 | Command Policy | `backend/agents/command_policy.py` | CLI command allowlisting and audit logging |
@@ -144,14 +145,17 @@ User types in InputCardComponent and clicks Send
 ```
 Agent completes
   -> _route_output() called
-  -> Load connections from dashboard
+  -> Load connections + workflow constraints from dashboard
   -> Extract {{route:Name}} tags if present
   -> Filter connections to matching targets
   -> For each connection:
      -> Evaluate condition (contains/regex)
      -> Validate JSON schema if specified
      -> Apply transform template
-     -> Send to target agent or update view card
+     -> Evaluate gate_rule (circuit breaker) — halt + flow:blocked on failure
+     -> If target is an agent: prepend workflow constraints, send message
+     -> If target is a gate card: gate_manager.receive_input() buffers and auto-resolves when complete
+     -> If target is a view card: update content
 ```
 
 ## Storage
@@ -161,9 +165,10 @@ All data persists as JSON files in `~/.local/share/agentcanvas/` (respects `XDG_
 ```
 ~/.local/share/agentcanvas/
   sessions/{id}.json          # Agent session state + messages
-  dashboards/{id}.json        # Layout: card positions, connections, groups
+  dashboards/{id}.json        # Layout: card positions, connections, groups, constraints
   input_cards/{id}.json       # Input card configs
   view_cards/{id}.json        # View card content
+  gate_cards/{id}.json        # Gate (arbiter) card state and resolved output
   mcp_servers/{id}.json       # MCP server configurations
   templates/{id}.json         # Custom prompt templates
   modes/{id}.json             # Custom agent modes

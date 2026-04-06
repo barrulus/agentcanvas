@@ -19,4 +19,4 @@ AgentCanvas is a provider-agnostic AI agent orchestrator with a spatial canvas i
 | Frontend port | 5173 (Vite dev server) |
 | Data storage | `~/.local/share/agentcanvas/` |
 | Providers | Claude Code (CLI subprocess), Ollama (HTTP API) |
-| Card types | Agent, Input (chat/webhook/file), View |
+| Card types | Agent, Input (chat/webhook/file), View, Gate (resolve/synthesize) |

@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
     init_providers()
     agent_manager.restore_sessions()
     input_manager.restore_input_cards()
+    from backend.agents.gate_manager import gate_manager
+    gate_manager.restore_gate_cards()
     from backend.templates.store import seed_builtin_templates
     seed_builtin_templates()
     yield
@@ -226,6 +228,64 @@ async def update_view_card(card_id: str, request: Request):
 async def delete_view_card(card_id: str):
     from backend.sessions.store import delete_view_card_file
     delete_view_card_file(card_id)
+    return {"ok": True}
+
+
+# --- Gate Cards ---
+
+
+@app.post("/api/gate-cards")
+async def create_gate_card_endpoint(request: Request):
+    from backend.agents.gate_manager import gate_manager
+    body = await request.json()
+    card = gate_manager.create_gate_card(
+        name=body.get("name", "Gate"),
+        mode=body.get("mode", "resolve"),
+        provider_id=body.get("provider_id", ""),
+        model=body.get("model", ""),
+        dashboard_id=body.get("dashboard_id"),
+    )
+    return card.model_dump()
+
+
+@app.get("/api/gate-cards")
+async def list_gate_cards(request: Request):
+    from backend.agents.gate_manager import gate_manager
+    dashboard_id = request.query_params.get("dashboard_id")
+    cards = gate_manager.list_gate_cards(dashboard_id)
+    return {"gate_cards": [c.model_dump() for c in cards]}
+
+
+@app.get("/api/gate-cards/{card_id}")
+async def get_gate_card(card_id: str):
+    from backend.agents.gate_manager import gate_manager
+    card = gate_manager.get_gate_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.put("/api/gate-cards/{card_id}")
+async def update_gate_card(card_id: str, request: Request):
+    from backend.agents.gate_manager import gate_manager
+    body = await request.json()
+    card = gate_manager.update_gate_card(card_id, body)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.delete("/api/gate-cards/{card_id}")
+async def delete_gate_card(card_id: str):
+    from backend.agents.gate_manager import gate_manager
+    gate_manager.delete_gate_card(card_id)
+    return {"ok": True}
+
+
+@app.post("/api/gate-cards/{card_id}/reset")
+async def reset_gate_card(card_id: str):
+    from backend.agents.gate_manager import gate_manager
+    await gate_manager.reset(card_id)
     return {"ok": True}
 
 
@@ -482,12 +542,13 @@ async def delete_dashboard_endpoint(dashboard_id: str):
 
 @app.get("/api/dashboards/{dashboard_id}/layout")
 async def get_dashboard_layout(dashboard_id: str):
-    from backend.sessions.store import load_dashboard_layout
+    from backend.sessions.store import load_dashboard_layout, load_dashboard_constraints
     cards, connections, groups = load_dashboard_layout(dashboard_id)
     return {
         "cards": {sid: c.model_dump() for sid, c in cards.items()},
         "connections": [c.model_dump() for c in connections],
         "groups": [g.model_dump() for g in groups],
+        "constraints": load_dashboard_constraints(dashboard_id),
     }
 
 
@@ -499,7 +560,8 @@ async def save_dashboard_layout_endpoint(dashboard_id: str, request: Request):
     cards = {sid: CardPosition.model_validate(c) for sid, c in body.get("cards", {}).items()}
     connections = [Connection.model_validate(c) for c in body.get("connections", [])]
     groups = [CardGroup.model_validate(g) for g in body.get("groups", [])]
-    save_dashboard_layout(dashboard_id, cards, connections, groups)
+    constraints = body.get("constraints")
+    save_dashboard_layout(dashboard_id, cards, connections, groups, constraints=constraints)
     return {"ok": True}
 
 

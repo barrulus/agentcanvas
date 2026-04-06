@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, InputCard, ViewCard
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, GateCard, InputCard, ViewCard
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,45 @@ def delete_input_card_file(card_id: str) -> None:
     path.unlink(missing_ok=True)
 
 
+# --- Gate Cards ---
+
+def _gate_cards_dir() -> Path:
+    d = _data_dir() / "gate_cards"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def save_gate_card(card: GateCard) -> None:
+    path = _gate_cards_dir() / f"{card.id}.json"
+    path.write_text(json.dumps(card.model_dump(), indent=2))
+
+
+def load_gate_card(card_id: str) -> GateCard | None:
+    path = _gate_cards_dir() / f"{card_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return GateCard.model_validate_json(path.read_text())
+    except Exception:
+        logger.warning("Failed to load gate card %s", card_id)
+        return None
+
+
+def load_all_gate_cards() -> list[GateCard]:
+    cards = []
+    for path in _gate_cards_dir().glob("*.json"):
+        try:
+            cards.append(GateCard.model_validate_json(path.read_text()))
+        except Exception:
+            logger.warning("Skipping corrupt gate card file %s", path.name)
+    return cards
+
+
+def delete_gate_card_file(card_id: str) -> None:
+    path = _gate_cards_dir() / f"{card_id}.json"
+    path.unlink(missing_ok=True)
+
+
 # --- Dashboards ---
 
 def _migrate_old_layout() -> None:
@@ -231,8 +270,9 @@ def save_dashboard_layout(
     cards: dict[str, CardPosition],
     connections: list[Connection] | None = None,
     groups: list[CardGroup] | None = None,
+    constraints: str | None = None,
 ) -> None:
-    """Save cards (and optionally connections/groups) of a dashboard."""
+    """Save cards (and optionally connections/groups/constraints) of a dashboard."""
     dashboard = get_dashboard(dashboard_id)
     if not dashboard:
         # Auto-create if doesn't exist
@@ -249,6 +289,8 @@ def save_dashboard_layout(
         dashboard["connections"] = [c.model_dump() for c in connections]
     if groups is not None:
         dashboard["groups"] = [g.model_dump() for g in groups]
+    if constraints is not None:
+        dashboard["constraints"] = constraints
     path = _dashboards_dir() / f"{dashboard_id}.json"
     path.write_text(json.dumps(dashboard, indent=2))
 
@@ -285,6 +327,14 @@ def load_dashboard_connections(dashboard_id: str) -> list[Connection]:
         return [Connection.model_validate(c) for c in dashboard.get("connections", [])]
     except Exception:
         return []
+
+
+def load_dashboard_constraints(dashboard_id: str) -> str:
+    """Load the workflow-level constraints text from a dashboard."""
+    dashboard = get_dashboard(dashboard_id)
+    if not dashboard:
+        return ""
+    return dashboard.get("constraints", "") or ""
 
 
 # Keep old functions as aliases for backward compatibility during migration

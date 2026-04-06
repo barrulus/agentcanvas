@@ -23,6 +23,7 @@ export const loadLayout = createAsyncThunk('canvas/loadLayout', async (dashboard
     cards: data.cards as Record<string, CardPosition>,
     connections: (data.connections || []) as Connection[],
     groups: (data.groups || []) as Array<{ id: string; name: string; member_ids: string[]; collapsed: boolean; color?: string }>,
+    constraints: (data.constraints || '') as string,
   }
 })
 
@@ -32,6 +33,7 @@ export function debouncedSaveLayout(
   cards: Record<string, CardPosition>,
   connections?: Connection[],
   groups?: Record<string, CardGroup>,
+  constraints?: string,
 ) {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
@@ -44,6 +46,7 @@ export function debouncedSaveLayout(
         condition: c.condition,
         output_schema: c.output_schema,
         transform: c.transform,
+        gate_rule: c.gate_rule,
       }))
     }
     if (groups) {
@@ -54,6 +57,9 @@ export function debouncedSaveLayout(
         collapsed: g.collapsed,
         color: g.color,
       }))
+    }
+    if (constraints !== undefined) {
+      payload.constraints = constraints
     }
     fetch(`/api/dashboards/${dashboardId}/layout`, {
       method: 'PUT',
@@ -70,7 +76,7 @@ interface CardPosition {
   width: number
   height: number
   zOrder: number
-  card_type?: 'agent' | 'view' | 'input'
+  card_type?: 'agent' | 'view' | 'input' | 'gate'
   collapsed?: boolean
 }
 
@@ -81,6 +87,7 @@ interface Connection {
   condition?: string
   output_schema?: Record<string, any>
   transform?: string
+  gate_rule?: string
 }
 
 interface CardGroup {
@@ -102,6 +109,8 @@ interface CanvasState {
   cards: Record<string, CardPosition>
   connections: Connection[]
   groups: Record<string, CardGroup>
+  constraints: string
+  blockedConnections: Record<string, string>
   nextZOrder: number
   selectedCards: string[]
   currentDashboardId: string
@@ -112,6 +121,8 @@ const initialState: CanvasState = {
   cards: {},
   connections: [],
   groups: {},
+  constraints: '',
+  blockedConnections: {},
   nextZOrder: 1,
   selectedCards: [],
   currentDashboardId: 'default',
@@ -147,7 +158,7 @@ const canvasSlice = createSlice({
   name: 'canvas',
   initialState,
   reducers: {
-    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' | 'input' }>) {
+    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' | 'input' | 'gate' }>) {
       const pos = action.payload.x !== undefined
         ? { x: action.payload.x, y: action.payload.y! }
         : findOpenPosition(state.cards)
@@ -218,12 +229,13 @@ const canvasSlice = createSlice({
         conn.condition = action.payload.condition
       }
     },
-    updateConnectionContract(state, action: PayloadAction<{ id: string; condition?: string; output_schema?: Record<string, any>; transform?: string }>) {
+    updateConnectionContract(state, action: PayloadAction<{ id: string; condition?: string; output_schema?: Record<string, any>; transform?: string; gate_rule?: string }>) {
       const conn = state.connections.find(c => c.id === action.payload.id)
       if (conn) {
         conn.condition = action.payload.condition
         conn.output_schema = action.payload.output_schema
         conn.transform = action.payload.transform
+        conn.gate_rule = action.payload.gate_rule
       }
     },
     setConnections(state, action: PayloadAction<Connection[]>) {
@@ -275,6 +287,15 @@ const canvasSlice = createSlice({
         }
       }
     },
+    setConstraints(state, action: PayloadAction<string>) {
+      state.constraints = action.payload
+    },
+    setConnectionBlocked(state, action: PayloadAction<{ connectionId: string; reason: string }>) {
+      state.blockedConnections[action.payload.connectionId] = action.payload.reason
+    },
+    clearConnectionBlocked(state, action: PayloadAction<string>) {
+      delete state.blockedConnections[action.payload]
+    },
     setSelected(state, action: PayloadAction<string[]>) {
       state.selectedCards = action.payload
     },
@@ -283,12 +304,14 @@ const canvasSlice = createSlice({
       state.cards = {}
       state.connections = []
       state.groups = {}
+      state.constraints = ''
       state.selectedCards = []
     },
   },
   extraReducers: (builder) => {
     builder.addCase(loadLayout.fulfilled, (state, action) => {
       state.cards = action.payload.cards
+      state.constraints = action.payload.constraints
       const maxZ = Object.values(action.payload.cards).reduce((m, c) => Math.max(m, c.zOrder || 0), 0)
       state.nextZOrder = maxZ + 1
       // Load persisted connections
@@ -300,6 +323,7 @@ const canvasSlice = createSlice({
           condition: c.condition,
           output_schema: (c as any).output_schema,
           transform: (c as any).transform,
+          gate_rule: (c as any).gate_rule,
         }))
       }
       // Load persisted groups
@@ -323,5 +347,5 @@ const canvasSlice = createSlice({
   },
 })
 
-export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, toggleCardCollapsed, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
+export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, toggleCardCollapsed, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, setConstraints, setConnectionBlocked, clearConnectionBlocked, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
 export const canvasReducer = canvasSlice.reducer

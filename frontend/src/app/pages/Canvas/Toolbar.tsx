@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
-import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup } from '@/shared/state/canvasSlice'
+import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup, setConstraints } from '@/shared/state/canvasSlice'
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
+import { createGateCard, fetchGateCards } from '@/shared/state/gateCardsSlice'
 import { fetchModes } from '@/shared/state/modesSlice'
 import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
@@ -47,6 +48,14 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   const [templateFields, setTemplateFields] = useState<Record<string, string>>({})
   const templates = useSelector((s: RootState) => s.templates.templates)
   const [showInputMenu, setShowInputMenu] = useState(false)
+  const [showGateDialog, setShowGateDialog] = useState(false)
+  const [gateMode, setGateMode] = useState<'resolve' | 'synthesize'>('resolve')
+  const [gateProvider, setGateProvider] = useState('')
+  const [gateModels, setGateModels] = useState<Array<{ id: string; name: string }>>([])
+  const [gateModel, setGateModel] = useState('')
+  const [showConstraints, setShowConstraints] = useState(false)
+  const [constraintsText, setConstraintsText] = useState('')
+  const constraints = useSelector((s: RootState) => s.canvas.constraints)
 
   useEffect(() => {
     dispatch(fetchProviders())
@@ -68,6 +77,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         dispatch(fetchSessions(currentDashboardId))
         dispatch(fetchViewCards(currentDashboardId))
         dispatch(fetchInputCards(currentDashboardId))
+        dispatch(fetchGateCards(currentDashboardId))
       }
     })
   }, [dispatch])
@@ -160,6 +170,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     dispatch(fetchSessions(dashboardId))
     dispatch(fetchViewCards(dashboardId))
     dispatch(fetchInputCards(dashboardId))
+    dispatch(fetchGateCards(dashboardId))
   }
 
   const handleCreateViewCard = async () => {
@@ -189,6 +200,28 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       dashboard_id: currentDashboardId,
     })).unwrap()
     dispatch(placeCard({ sessionId: result.id, card_type: 'input' }))
+  }
+
+  const handleGateProviderChange = async (providerId: string) => {
+    setGateProvider(providerId)
+    const res = await fetch(`/api/providers/${providerId}/models`)
+    const data = await res.json()
+    setGateModels(data.models)
+    if (data.models.length > 0) setGateModel(data.models[0].id)
+  }
+
+  const handleCreateGateCard = async () => {
+    if (!gateProvider || !gateModel) return
+    const result = await dispatch(createGateCard({
+      name: 'Gate',
+      mode: gateMode,
+      provider_id: gateProvider,
+      model: gateModel,
+      dashboard_id: currentDashboardId,
+    })).unwrap()
+    dispatch(placeCard({ sessionId: result.id, card_type: 'gate' }))
+    setShowGateDialog(false)
+    setGateMode('resolve')
   }
 
   const handleNewDashboard = async () => {
@@ -255,6 +288,23 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       </div>
 
       <span style={{ flex: 1 }} />
+
+      <button
+        onClick={() => { setConstraintsText(constraints); setShowConstraints(true) }}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: constraints ? '#ff9800' : '#888',
+          border: `1px solid ${constraints ? '#6b4000' : '#333'}`,
+          borderRadius: 6,
+          fontSize: 13,
+          cursor: 'pointer',
+          lineHeight: 1,
+        }}
+        title="Workflow constraints"
+      >
+        Constraints
+      </button>
 
       <button
         onClick={onOpenTemplates}
@@ -389,6 +439,23 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       </button>
 
       <button
+        onClick={() => setShowGateDialog(true)}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#ff9800',
+          border: '1px solid #6b4000',
+          borderRadius: 6,
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: 'pointer',
+        }}
+        title="Add a gate/arbiter card (collects and resolves multiple inputs)"
+      >
+        + Gate Card
+      </button>
+
+      <button
         onClick={() => setShowDialog(true)}
         style={{
           padding: '6px 16px',
@@ -403,6 +470,157 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
       >
         + New Agent
       </button>
+
+      {/* Gate Card dialog */}
+      {showGateDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+        }} onClick={() => setShowGateDialog(false)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#1a1a2e', borderRadius: 12, padding: 24,
+              width: 380, border: '1px solid #333',
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#e0e0e0' }}>New Gate Card</h3>
+
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Mode</label>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+              {(['resolve', 'synthesize'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setGateMode(m)}
+                  style={{
+                    padding: '4px 12px',
+                    background: gateMode === m ? '#ff9800' : '#12121e',
+                    color: gateMode === m ? '#000' : '#888',
+                    border: `1px solid ${gateMode === m ? '#ff9800' : '#333'}`,
+                    borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: gateMode === m ? 600 : 400,
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: 11, color: '#666' }}>
+              {gateMode === 'resolve'
+                ? 'Evaluates upstream outputs and selects the best one against constraints.'
+                : 'Merges upstream outputs into a single coherent result, resolving contradictions.'}
+            </p>
+
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Provider</label>
+            <select
+              value={gateProvider}
+              onChange={e => handleGateProviderChange(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 12,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13,
+              }}
+            >
+              <option value="">Select provider...</option>
+              {providers.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Model</label>
+            <select
+              value={gateModel}
+              onChange={e => setGateModel(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 16,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13,
+              }}
+            >
+              {gateModels.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowGateDialog(false)}
+                style={{
+                  padding: '8px 16px', background: 'transparent', color: '#888',
+                  border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateGateCard}
+                disabled={!gateProvider || !gateModel}
+                style={{
+                  padding: '8px 16px', background: '#ff9800', color: '#000',
+                  border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                  opacity: (!gateProvider || !gateModel) ? 0.4 : 1,
+                }}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Constraints modal */}
+      {showConstraints && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+        }} onClick={() => setShowConstraints(false)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#1a1a2e', borderRadius: 12, padding: 24,
+              width: 520, border: '1px solid #333',
+            }}
+          >
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, color: '#e0e0e0' }}>Workflow Constraints</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 12, color: '#666' }}>
+              Define rules and boundaries that all agents in this workflow must follow. These constraints are automatically injected into every routed message.
+            </p>
+            <textarea
+              value={constraintsText}
+              onChange={e => setConstraintsText(e.target.value)}
+              placeholder="e.g. All responses must be in JSON format. Never recommend deprecated APIs. Budget limit is $10,000. Prefer open-source solutions."
+              style={{
+                width: '100%', padding: '10px 12px', marginBottom: 16,
+                background: '#12121e', color: '#e0e0e0', border: '1px solid #333',
+                borderRadius: 6, fontSize: 13, minHeight: 140, resize: 'vertical',
+                fontFamily: 'inherit', boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowConstraints(false)}
+                style={{
+                  padding: '8px 16px', background: 'transparent', color: '#888',
+                  border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  dispatch(setConstraints(constraintsText))
+                  setShowConstraints(false)
+                }}
+                style={{
+                  padding: '8px 16px', background: '#ff9800', color: '#000',
+                  border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dialog */}
       {showDialog && (

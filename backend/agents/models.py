@@ -55,7 +55,7 @@ class CardPosition(BaseModel):
     width: float = 480
     height: float = 280
     z_order: int = 0
-    card_type: Literal["agent", "view", "input"] = "agent"
+    card_type: Literal["agent", "view", "input", "gate"] = "agent"
     collapsed: bool = False
 
 
@@ -74,6 +74,7 @@ class Connection(BaseModel):
     condition: Optional[str] = None  # e.g. "contains:error", "not_contains:ok", "regex:SUCCESS"
     output_schema: Optional[dict] = None  # JSON Schema to validate output before routing
     transform: Optional[str] = None  # Template string: {{output}} for full text, {{output.field}} for JSON field access
+    gate_rule: Optional[str] = None  # Circuit breaker: "require:text", "reject:text", "min_length:N", "max_length:N"
 
 
 class CardGroup(BaseModel):
@@ -93,10 +94,24 @@ class InputCard(BaseModel):
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 
 
+class GateCard(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Gate"
+    mode: Literal["resolve", "synthesize"] = "resolve"
+    provider_id: str = ""
+    model: str = ""
+    status: Literal["idle", "waiting", "resolving", "completed", "error"] = "idle"
+    pending_inputs: dict[str, str] = Field(default_factory=dict)  # connection_id -> output text
+    resolved_output: str = ""
+    dashboard_id: Optional[str] = None
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+
+
 class DashboardLayout(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     name: str = "New Canvas"
     cards: dict[str, CardPosition] = Field(default_factory=dict)
     connections: list[Connection] = Field(default_factory=list)
     groups: list[CardGroup] = Field(default_factory=list)
+    constraints: Optional[str] = None  # Workflow-level constraints injected into all routed messages
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())

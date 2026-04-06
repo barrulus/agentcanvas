@@ -67,6 +67,14 @@ async def clear_downstream(
             await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
             continue
 
+        # Clear gate card
+        from backend.agents.gate_manager import gate_manager
+        gate_card = gate_manager.get_gate_card(target_id)
+        if gate_card:
+            await gate_manager.reset(target_id)
+            await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
+            continue
+
         # Clear view card content
         from backend.sessions.store import load_view_card, save_view_card
         view_card = load_view_card(target_id)
@@ -94,12 +102,14 @@ async def route_to_downstream(
         return
     visited.add(from_card_id)
 
-    from backend.sessions.store import load_dashboard_connections
+    from backend.sessions.store import load_dashboard_connections, load_dashboard_constraints
     connections = load_dashboard_connections(dashboard_id)
     outgoing = [c for c in connections if c.from_card_id == from_card_id]
 
     if not outgoing:
         return
+
+    constraints = load_dashboard_constraints(dashboard_id)
 
     # Named routing: extract {{route:Name}} tags from content
     route_tags = re.findall(r"\{\{route:([^}]+)\}\}", content)
@@ -125,6 +135,10 @@ async def route_to_downstream(
         target_session = agent_mgr.sessions.get(target_id)
         if target_session:
             return target_session.name
+        from backend.agents.gate_manager import gate_manager
+        gc = gate_manager.get_gate_card(target_id)
+        if gc:
+            return gc.name
         from backend.sessions.store import load_view_card, load_input_card
         vc = load_view_card(target_id)
         if vc:
@@ -180,6 +194,23 @@ async def route_to_downstream(
         if conn.transform:
             routed_text = AgentManager._apply_transform(conn.transform, routed_text)
 
+        # Circuit breaker gate rule
+        if conn.gate_rule:
+            passed, reason = AgentManager._evaluate_gate_rule(conn.gate_rule, routed_text)
+            if not passed:
+                logger.warning("Gate rule blocked connection %s: %s", conn.id, reason)
+                await ws_manager.broadcast_dashboard(
+                    "flow:blocked",
+                    {
+                        "connection_id": conn.id,
+                        "from_card_id": from_card_id,
+                        "to_card_id": conn.to_card_id,
+                        "gate_rule": conn.gate_rule,
+                        "reason": reason,
+                    },
+                )
+                return
+
         target_id = conn.to_card_id
         await ws_manager.broadcast_dashboard(
             "flow:routed",
@@ -189,7 +220,16 @@ async def route_to_downstream(
         # Target is an agent session
         target_session = agent_mgr.sessions.get(target_id)
         if target_session:
+            if constraints:
+                routed_text = f"[Workflow Constraints]\n{constraints}\n\n[Task]\n{routed_text}"
             await agent_mgr.send_message(target_id, routed_text)
+            return
+
+        # Target is a gate card
+        from backend.agents.gate_manager import gate_manager
+        gate_card = gate_manager.get_gate_card(target_id)
+        if gate_card:
+            await gate_manager.receive_input(target_id, conn.id, routed_text)
             return
 
         # Target is a view card
@@ -692,6 +732,8 @@ class AgentManager:
         message: str,
         parent_session_id: str | None = None,
         system_prompt: str | None = None,
+        dashboard_id: str | None = None,
+        silent: bool = False,
     ) -> dict:
         """Spawn a sub-agent, send it a message, wait for completion, return result."""
         session = await self.create_session(
@@ -702,21 +744,24 @@ class AgentManager:
             cwd=None,
         )
         session.parent_session_id = parent_session_id
-        if parent_session_id:
+        if dashboard_id:
+            session.dashboard_id = dashboard_id
+        elif parent_session_id:
             parent = self.sessions.get(parent_session_id)
             if parent and parent.dashboard_id:
                 session.dashboard_id = parent.dashboard_id
         save_session(session)
 
-        # Notify canvas of parent-child relationship
-        await ws_manager.broadcast_dashboard(
-            "agent:spawned",
-            {
-                "session_id": session.id,
-                "parent_session_id": parent_session_id,
-                "session": session.model_dump(),
-            },
-        )
+        # Notify canvas of parent-child relationship (skip for silent/internal calls)
+        if not silent:
+            await ws_manager.broadcast_dashboard(
+                "agent:spawned",
+                {
+                    "session_id": session.id,
+                    "parent_session_id": parent_session_id,
+                    "session": session.model_dump(),
+                },
+            )
 
         # Run synchronously — send message and wait for completion
         user_msg = Message(role="user", content=message)
@@ -741,6 +786,35 @@ class AgentManager:
         }
 
     # --- Task Flow: Output Routing ---
+
+    @staticmethod
+    def _evaluate_gate_rule(gate_rule: str | None, text: str) -> tuple[bool, str]:
+        """Evaluate a circuit-breaker gate rule. Returns (passed, reason)."""
+        if not gate_rule:
+            return True, ""
+        parts = gate_rule.split(":", 1)
+        if len(parts) != 2:
+            return True, ""
+        rule_type, value = parts[0].strip(), parts[1].strip()
+        if rule_type == "require":
+            if value not in text:
+                return False, f"Required text '{value}' not found in output"
+        elif rule_type == "reject":
+            if value in text:
+                return False, f"Rejected text '{value}' found in output"
+        elif rule_type == "min_length":
+            try:
+                if len(text) < int(value):
+                    return False, f"Output length {len(text)} below minimum {value}"
+            except ValueError:
+                pass
+        elif rule_type == "max_length":
+            try:
+                if len(text) > int(value):
+                    return False, f"Output length {len(text)} exceeds maximum {value}"
+            except ValueError:
+                pass
+        return True, ""
 
     @staticmethod
     def _evaluate_condition(condition: str | None, text: str) -> bool:

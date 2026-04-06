@@ -1,7 +1,8 @@
 import { store } from '../state/store'
 import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCost, setSession, setApprovalRequest, setBranch } from '../state/agentsSlice'
-import { placeCard, addConnection } from '../state/canvasSlice'
+import { placeCard, addConnection, setConnectionBlocked, clearConnectionBlocked } from '../state/canvasSlice'
 import { setViewCard } from '../state/viewCardsSlice'
+import { setGateCard } from '../state/gateCardsSlice'
 
 class WebSocketManager {
   private ws: WebSocket | null = null
@@ -95,10 +96,27 @@ class WebSocketManager {
         }
         break
 
+      case 'gate_card:update':
+        if (data.card) {
+          store.dispatch(setGateCard(data.card))
+        }
+        break
+
       case 'flow:routed':
-        // UI animation hook — could trigger a visual pulse on the connection
-        // For now, just log. The downstream effects (agent running, view card updating)
+        // UI animation hook — downstream effects (agent running, view card updating)
         // are handled by their own events.
+        break
+
+      case 'flow:blocked':
+        if (data.connection_id) {
+          store.dispatch(setConnectionBlocked({
+            connectionId: data.connection_id,
+            reason: data.reason || 'Gate rule blocked',
+          }))
+          setTimeout(() => {
+            store.dispatch(clearConnectionBlocked(data.connection_id))
+          }, 4000)
+        }
         break
 
       case 'agent:spawned': {

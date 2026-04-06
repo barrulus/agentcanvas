@@ -7,6 +7,7 @@ import { templatesReducer } from './templatesSlice'
 import { viewCardsReducer } from './viewCardsSlice'
 import { commandPolicyReducer } from './commandPolicySlice'
 import { inputCardsReducer } from './inputCardsSlice'
+import { gateCardsReducer } from './gateCardsSlice'
 
 export const store = configureStore({
   reducer: {
@@ -18,6 +19,7 @@ export const store = configureStore({
     viewCards: viewCardsReducer,
     commandPolicies: commandPolicyReducer,
     inputCards: inputCardsReducer,
+    gateCards: gateCardsReducer,
   },
 })
 

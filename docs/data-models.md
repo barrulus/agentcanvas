@@ -55,7 +55,7 @@ Layout position for a card on the canvas.
 | `width` | float | 480 | Card width in pixels |
 | `height` | float | 280 | Card height in pixels |
 | `z_order` | int | 0 | Z-index for layering |
-| `card_type` | enum | `"agent"` | `agent`, `view`, `input` |
+| `card_type` | enum | `"agent"` | `agent`, `view`, `input`, `gate` |
 | `collapsed` | bool | false | Whether card is collapsed to BPMN-style icon |
 
 ## Connection
@@ -70,6 +70,7 @@ A directed edge between two cards.
 | `condition` | string? | null | Routing condition: `contains:text`, `not_contains:text`, `regex:pattern` |
 | `output_schema` | dict? | null | JSON Schema for output validation |
 | `transform` | string? | null | Template: `{{output}}` for full text, `{{output.field}}` for JSON fields |
+| `gate_rule` | string? | null | Circuit breaker: `require:text`, `reject:text`, `min_length:N`, `max_length:N` |
 
 ## InputCard
 
@@ -95,6 +96,25 @@ Output display card.
 | `content` | string | `""` | Markdown content |
 | `dashboard_id` | string? | null | Which dashboard |
 | `created_at` | float | now | Unix timestamp |
+
+## GateCard
+
+Arbiter card that collects multiple upstream outputs and resolves them into one via an LLM call. See [Gate Cards](workflows.md#gate-cards).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | uuid | Card identifier |
+| `name` | string | `"Gate"` | Display name |
+| `mode` | enum | `"resolve"` | `resolve` (pick best) or `synthesize` (merge candidates) |
+| `provider_id` | string | `""` | Provider for the resolution LLM call |
+| `model` | string | `""` | Model for the resolution LLM call |
+| `status` | enum | `"idle"` | `idle`, `waiting`, `resolving`, `completed`, `error` |
+| `pending_inputs` | dict[str, str] | {} | Buffered upstream outputs keyed by connection ID |
+| `resolved_output` | string | `""` | LLM resolution result |
+| `dashboard_id` | string? | null | Which dashboard |
+| `created_at` | float | now | Unix timestamp |
+
+A gate card auto-triggers resolution once `pending_inputs` covers every incoming connection's ID. Workflow [shared constraints](workflows.md#workflow-level-shared-constraints) are appended to the resolution system prompt.
 
 ## CardGroup
 
@@ -131,4 +151,5 @@ Canvas state for a single dashboard.
 | `cards` | dict[str, CardPosition] | {} | Card positions keyed by ID |
 | `connections` | Connection[] | [] | All connections |
 | `groups` | CardGroup[] | [] | All groups |
+| `constraints` | string? | null | Workflow-level shared constraints injected into routed messages |
 | `created_at` | float | now | Unix timestamp |

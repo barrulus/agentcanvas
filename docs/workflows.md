@@ -32,6 +32,23 @@ Agent cards run LLM providers (Claude Code or Ollama). In workflows, agents are 
 
 View cards display output. Connect an agent to a view card to capture its final response. View cards render Markdown.
 
+### Gate Cards
+
+Gate cards (also called arbiter cards) collect outputs from **multiple upstream agents** and use an LLM to resolve them into a single result. Use them when several agents independently produce candidates for the same decision and you want to commit to one answer rather than averaging or concatenating.
+
+A gate card waits until **every** upstream connection has delivered an output, then sends all of them to its configured LLM with a resolution prompt. Workflow [shared constraints](#workflow-level-shared-constraints) are automatically appended so the gate evaluates options against the same rules every other agent sees.
+
+**Two modes:**
+
+| Mode | Behavior |
+|------|----------|
+| **resolve** | Evaluate the candidates and **pick the best one** against the constraint set. Good for decision routing. |
+| **synthesize** | **Merge** the candidates into a single coherent output, explicitly resolving contradictions. Good for consensus building. |
+
+**Creating a gate card:** Click "+ Gate Card" in the toolbar, choose mode and provider/model, click Create. Connect two or more upstream agents to the gate. The gate auto-triggers when all upstream inputs arrive and routes its resolved output downstream like any other card.
+
+**Reset:** Click "Reset" on the gate header to clear pending inputs and start over.
+
 ### Connections
 
 Draw a connection by clicking a port (cyan dot) on one card and dragging to another card's port. Connections define the flow of data between cards.
@@ -43,6 +60,7 @@ Draw a connection by clicking a port (cyan dot) on one card and dragging to anot
 | **Condition** | Filter: only route if output matches | `contains:error`, `regex:SUCCESS\|OK` |
 | **Output Schema** | JSON Schema validation before routing | `{"type": "object", "required": ["summary"]}` |
 | **Transform** | Reshape output before sending | `{{output.summary}}`, `Summarize: {{output}}` |
+| **Gate Rule** | [Circuit breaker](#circuit-breakers): halts routing on failure | `require:approved`, `min_length:100` |
 
 ## Named Routing
 
@@ -83,6 +101,57 @@ You can include multiple route tags to fan out to specific agents:
 ```
 {{route:Animals}} {{route:Summarizer}}
 ```
+
+## Workflow-level Shared Constraints
+
+Multi-agent pipelines often degrade because each agent reasons about constraints independently. The result looks clean per-agent but doesn't align across the pipeline. Shared constraints fix this by giving every agent in the workflow the same rules to operate within.
+
+**How it works:** Click the "Constraints" button in the toolbar and write the rules in the modal (free text — JSON, bullet list, plain prose, anything). When the workflow runs, the constraints text is automatically prepended to every message routed to an agent in this format:
+
+```
+[Workflow Constraints]
+{your constraints}
+
+[Task]
+{the routed content}
+```
+
+Constraints are stored per-dashboard, so different workflows can have different rules.
+
+**When to use them:**
+
+| Use case | Example constraint |
+|----------|-------------------|
+| Output format | `All responses must be valid JSON with fields: decision, reasoning, confidence.` |
+| Domain rules | `Never recommend deprecated APIs. Prefer open-source solutions.` |
+| Budget/scope | `Total proposed budget must not exceed $10,000.` |
+| Style | `Be concise. No marketing language. No hedging like "it depends".` |
+
+Constraints are also injected into the resolution prompt of [gate cards](#gate-cards), so the arbiter evaluates candidates against the same rules.
+
+## Circuit Breakers
+
+Circuit breakers (gate rules) halt routing on a connection if the output fails a quality check. This prevents bad output from one agent corrupting downstream agents — the failure mode the multi-agent pattern is most vulnerable to.
+
+Add a gate rule by right-clicking a connection and filling the **Gate rule** field in the editor.
+
+**Supported rules:**
+
+| Rule | Behavior |
+|------|----------|
+| `require:text` | Fails if `text` is **not** in the output |
+| `reject:text` | Fails if `text` **is** in the output |
+| `min_length:N` | Fails if output length is below `N` characters |
+| `max_length:N` | Fails if output length exceeds `N` characters |
+
+**Visual feedback:** When a gate rule blocks routing, the connection flashes red on the canvas with the failure reason for ~4 seconds. The downstream agent does **not** receive the message.
+
+**Example:**
+```
+Connection: Reviewer -> Publisher
+Gate rule:  require:APPROVED
+```
+The Publisher only receives output that contains the literal text `APPROVED` somewhere in the Reviewer's response. Anything else is blocked.
 
 ## Workflow Lifecycle
 
