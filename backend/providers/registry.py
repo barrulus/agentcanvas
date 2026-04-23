@@ -9,12 +9,33 @@ _registry: MCPRegistry | None = None
 _tool_executor: ToolExecutor | None = None
 
 
+def _load_settings() -> dict:
+    try:
+        from backend.sessions.store import load_app_settings
+        return load_app_settings()
+    except Exception:
+        return {}
+
+
 def init_providers() -> None:
     global _registry, _tool_executor
     _registry = MCPRegistry()
     _tool_executor = ToolExecutor(_registry)
+    settings = _load_settings()
+    ollama_url = (settings.get("provider_config") or {}).get("ollama_base_url") or "http://localhost:11434"
+    # Apply API keys as env vars so provider SDKs pick them up
+    import os
+    for name, env in (("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")):
+        val = (settings.get("api_keys") or {}).get(name)
+        if val:
+            os.environ[env] = val
     _providers["claude-code"] = ClaudeCodeProvider(registry=_registry)
-    _providers["ollama"] = OllamaProvider(tool_executor=_tool_executor)
+    _providers["ollama"] = OllamaProvider(tool_executor=_tool_executor, base_url=ollama_url)
+
+
+def apply_settings_update() -> None:
+    """Re-initialise providers so setting changes (API keys, Ollama URL) take effect."""
+    init_providers()
 
 
 def get_provider(provider_id: str) -> AgentProvider:

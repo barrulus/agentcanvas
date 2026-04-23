@@ -10,7 +10,14 @@ import {
   fetchPermissions,
   setPermission,
 } from '@/shared/state/mcpSlice'
-import { fetchPolicies, createPolicy, deletePolicy, CommandPolicy } from '@/shared/state/commandPolicySlice'
+import { fetchPolicies, createPolicy, deletePolicy } from '@/shared/state/commandPolicySlice'
+import {
+  getCanvasPrefs, setCanvasPrefs, DEFAULT_CANVAS_PREFS,
+  getShortcuts, setShortcuts, DEFAULT_SHORTCUTS,
+  type CanvasPrefs, type ShortcutBindings,
+} from '@/shared/prefs'
+
+type TabKey = 'providers' | 'mcp' | 'policies' | 'canvas' | 'shortcuts'
 
 interface SettingsProps {
   onClose: () => void
@@ -28,6 +35,18 @@ export function Settings({ onClose }: SettingsProps) {
   const [policyPatternType, setPolicyPatternType] = useState<'glob' | 'regex'>('glob')
   const [policyAction, setPolicyAction] = useState<'allow' | 'deny' | 'ask'>('deny')
   const [policyScope, setPolicyScope] = useState<'global' | 'mode'>('global')
+  const [tab, setTab] = useState<TabKey>('providers')
+
+  // Server-side settings (API keys, provider config)
+  const [providerConfig, setProviderConfig] = useState<{ ollama_base_url: string }>({ ollama_base_url: 'http://localhost:11434' })
+  const [apiKeysMasked, setApiKeysMasked] = useState<Record<string, string>>({})
+  const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({ anthropic: '', openai: '' })
+  const [saveStatus, setSaveStatus] = useState<string>('')
+
+  // Local-only prefs
+  const [canvasPrefs, setCanvasPrefsState] = useState<CanvasPrefs>(getCanvasPrefs())
+  const [shortcuts, setShortcutsState] = useState<ShortcutBindings>(getShortcuts())
+  const [recordingBinding, setRecordingBinding] = useState<keyof ShortcutBindings | null>(null)
 
   // Add form state
   const [formName, setFormName] = useState('')
@@ -41,7 +60,71 @@ export function Settings({ onClose }: SettingsProps) {
     dispatch(fetchServers())
     dispatch(fetchPermissions())
     dispatch(fetchPolicies())
+    fetch('/api/settings').then(r => r.json()).then((data) => {
+      setProviderConfig({ ollama_base_url: data.provider_config?.ollama_base_url || 'http://localhost:11434' })
+      setApiKeysMasked(data.api_keys_set || {})
+    }).catch(() => {})
   }, [dispatch])
+
+  const handleSaveServerSettings = async () => {
+    setSaveStatus('Saving…')
+    const body: any = { provider_config: providerConfig, api_keys: {} }
+    for (const k of Object.keys(apiKeyInputs)) {
+      const v = apiKeyInputs[k].trim()
+      if (v) body.api_keys[k] = v
+    }
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setApiKeysMasked(data.api_keys_set || {})
+      setApiKeyInputs({ anthropic: '', openai: '' })
+      setSaveStatus('Saved')
+      setTimeout(() => setSaveStatus(''), 1500)
+    } else {
+      setSaveStatus('Save failed')
+    }
+  }
+
+  const handleClearApiKey = async (name: string) => {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_keys: { [name]: '' } }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setApiKeysMasked(data.api_keys_set || {})
+    }
+  }
+
+  const handleCanvasPrefChange = (patch: Partial<CanvasPrefs>) => {
+    const next = { ...canvasPrefs, ...patch }
+    setCanvasPrefsState(next)
+    setCanvasPrefs(next)
+  }
+
+  const handleRecordBinding = (key: keyof ShortcutBindings, e: React.KeyboardEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.key === 'Escape') { setRecordingBinding(null); return }
+    // Ignore pure-modifier presses
+    if (['Shift', 'Control', 'Meta', 'Alt'].includes(e.key)) return
+    const parts: string[] = []
+    if (e.shiftKey) parts.push('Shift')
+    if (e.ctrlKey) parts.push('Ctrl')
+    if (e.metaKey) parts.push('Meta')
+    if (e.altKey) parts.push('Alt')
+    parts.push(e.key.length === 1 && e.shiftKey ? e.key.toUpperCase() : e.key)
+    const binding = parts.join('+')
+    const next = { ...shortcuts, [key]: binding }
+    setShortcutsState(next)
+    setShortcuts(next)
+    setRecordingBinding(null)
+  }
 
   const resetForm = () => {
     setFormName('')
@@ -156,10 +239,203 @@ export function Settings({ onClose }: SettingsProps) {
           ×
         </button>
 
-        <h2 style={{ margin: '0 0 20px', fontSize: 18, color: '#e0e0e0', fontWeight: 700 }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 18, color: '#e0e0e0', fontWeight: 700 }}>
           Settings
         </h2>
 
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #2a2a3e', marginBottom: 20 }}>
+          {([
+            ['providers', 'Providers & API keys'],
+            ['mcp', 'MCP Servers'],
+            ['policies', 'Command Policies'],
+            ['canvas', 'Canvas'],
+            ['shortcuts', 'Shortcuts'],
+          ] as Array<[TabKey, string]>).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                padding: '8px 14px',
+                background: 'transparent',
+                color: tab === key ? '#4fc3f7' : '#888',
+                border: 'none',
+                borderBottom: tab === key ? '2px solid #4fc3f7' : '2px solid transparent',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'providers' && (
+          <div>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+              API Keys
+            </h3>
+            <p style={{ fontSize: 12, color: '#666', margin: '0 0 16px' }}>
+              API keys are stored in your local AgentCanvas data directory as plaintext JSON. Do not use on a shared machine.
+              Keys are applied as environment variables on save.
+            </p>
+
+            {(['anthropic', 'openai'] as const).map((name) => (
+              <div key={name} style={{
+                background: '#1a1a2e', borderRadius: 8, padding: 14, marginBottom: 12,
+                border: '1px solid #333',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: '#e0e0e0', flex: 1, textTransform: 'capitalize' }}>
+                    {name}
+                  </span>
+                  {apiKeysMasked[name] && (
+                    <>
+                      <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>
+                        current: {apiKeysMasked[name]}
+                      </span>
+                      <button
+                        onClick={() => handleClearApiKey(name)}
+                        style={{
+                          padding: '4px 10px', background: 'transparent', color: '#e57373',
+                          border: '1px solid #5a2e2e', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                        }}
+                      >Clear</button>
+                    </>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={apiKeyInputs[name] || ''}
+                  onChange={e => setApiKeyInputs(v => ({ ...v, [name]: e.target.value }))}
+                  placeholder={apiKeysMasked[name] ? 'Enter new value to replace…' : 'Paste API key…'}
+                  style={inputStyle}
+                />
+              </div>
+            ))}
+
+            <h3 style={{ margin: '24px 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+              Provider Configuration
+            </h3>
+            <label style={labelStyle}>Ollama base URL</label>
+            <input
+              value={providerConfig.ollama_base_url}
+              onChange={e => setProviderConfig({ ...providerConfig, ollama_base_url: e.target.value })}
+              placeholder="http://localhost:11434"
+              style={inputStyle}
+            />
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+              {saveStatus && <span style={{ fontSize: 12, color: '#888', marginRight: 'auto' }}>{saveStatus}</span>}
+              <button
+                onClick={handleSaveServerSettings}
+                style={{
+                  padding: '8px 16px', background: '#4fc3f7', color: '#000',
+                  border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'canvas' && (
+          <div>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+              Canvas Preferences
+            </h3>
+            <p style={{ fontSize: 12, color: '#666', margin: '0 0 16px' }}>
+              Stored locally in your browser.
+            </p>
+
+            <label style={labelStyle}>Zoom sensitivity: {canvasPrefs.zoomSensitivity.toFixed(2)}×</label>
+            <input
+              type="range" min={0.25} max={3} step={0.05}
+              value={canvasPrefs.zoomSensitivity}
+              onChange={e => handleCanvasPrefChange({ zoomSensitivity: parseFloat(e.target.value) })}
+              style={{ width: '100%', marginBottom: 16 }}
+            />
+
+            <label style={labelStyle}>Grid size (px): {canvasPrefs.gridSize}</label>
+            <input
+              type="range" min={8} max={64} step={4}
+              value={canvasPrefs.gridSize}
+              onChange={e => handleCanvasPrefChange({ gridSize: parseInt(e.target.value) })}
+              style={{ width: '100%', marginBottom: 16 }}
+            />
+
+            <button
+              onClick={() => { setCanvasPrefsState(DEFAULT_CANVAS_PREFS); setCanvasPrefs(DEFAULT_CANVAS_PREFS) }}
+              style={{
+                padding: '6px 12px', background: 'transparent', color: '#888',
+                border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              Reset defaults
+            </button>
+          </div>
+        )}
+
+        {tab === 'shortcuts' && (
+          <div>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+              Keyboard Shortcuts
+            </h3>
+            <p style={{ fontSize: 12, color: '#666', margin: '0 0 16px' }}>
+              Click a binding to record a new one. Press Escape to cancel.
+            </p>
+
+            {(Object.keys(DEFAULT_SHORTCUTS) as Array<keyof ShortcutBindings>).map((key) => {
+              const label: Record<keyof ShortcutBindings, string> = {
+                newAgent: 'New agent dialog',
+                settings: 'Open settings',
+                history: 'Open history',
+                templates: 'Open templates',
+                approveAll: 'Approve all pending tools',
+                denyAll: 'Deny all pending tools',
+              }
+              const isRecording = recordingBinding === key
+              return (
+                <div key={key} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', background: '#1a1a2e', borderRadius: 6, marginBottom: 6,
+                  border: '1px solid #333',
+                }}>
+                  <span style={{ flex: 1, fontSize: 13, color: '#ccc' }}>{label[key]}</span>
+                  <button
+                    onClick={() => setRecordingBinding(isRecording ? null : key)}
+                    onKeyDown={isRecording ? (e) => handleRecordBinding(key, e) : undefined}
+                    style={{
+                      padding: '4px 10px', minWidth: 96,
+                      background: isRecording ? '#2a4a5e' : '#12121e',
+                      color: isRecording ? '#4fc3f7' : '#e0e0e0',
+                      border: `1px solid ${isRecording ? '#4fc3f7' : '#333'}`,
+                      borderRadius: 4, fontSize: 12, fontFamily: 'monospace', cursor: 'pointer',
+                    }}
+                  >
+                    {isRecording ? 'press keys…' : shortcuts[key]}
+                  </button>
+                </div>
+              )
+            })}
+
+            <button
+              onClick={() => { setShortcutsState(DEFAULT_SHORTCUTS); setShortcuts(DEFAULT_SHORTCUTS) }}
+              style={{
+                marginTop: 12,
+                padding: '6px 12px', background: 'transparent', color: '#888',
+                border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              Reset defaults
+            </button>
+          </div>
+        )}
+
+        {tab === 'mcp' && <>
         <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
           MCP Servers
         </h3>
@@ -407,8 +683,10 @@ export function Settings({ onClose }: SettingsProps) {
           </button>
         )}
 
-        {/* Command Policies */}
-        <h3 style={{ margin: '24px 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
+        </>}
+
+        {tab === 'policies' && <>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#ccc', fontWeight: 600 }}>
           Command Policies
           <span style={{ fontSize: 11, color: '#666', fontWeight: 400, marginLeft: 8 }}>
             Control which shell commands agents can run
@@ -533,6 +811,7 @@ export function Settings({ onClose }: SettingsProps) {
             + Add Command Policy
           </button>
         )}
+        </>}
       </div>
     </div>
   )

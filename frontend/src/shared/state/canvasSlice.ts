@@ -179,6 +179,12 @@ const canvasSlice = createSlice({
         card.y = action.payload.y
       }
     },
+    moveSelected(state, action: PayloadAction<{ dx: number; dy: number; ids: string[] }>) {
+      for (const id of action.payload.ids) {
+        const c = state.cards[id]
+        if (c) { c.x += action.payload.dx; c.y += action.payload.dy }
+      }
+    },
     resizeCard(state, action: PayloadAction<{ sessionId: string; width: number; height: number; x?: number; y?: number }>) {
       const card = state.cards[action.payload.sessionId]
       if (card) {
@@ -347,5 +353,5 @@ const canvasSlice = createSlice({
   },
 })
 
-export const { placeCard, moveCard, resizeCard, bringToFront, removeCard, toggleCardCollapsed, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, setConstraints, setConnectionBlocked, clearConnectionBlocked, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
+export const { placeCard, moveCard, moveSelected, resizeCard, bringToFront, removeCard, toggleCardCollapsed, addConnection, removeConnection, updateConnectionCondition, updateConnectionContract, setConnections, setConstraints, setConnectionBlocked, clearConnectionBlocked, createGroup, deleteGroup, renameGroup, toggleGroupCollapsed, addToGroup, removeFromGroup, moveGroup, setSelected, switchDashboard } = canvasSlice.actions
 export const canvasReducer = canvasSlice.reducer

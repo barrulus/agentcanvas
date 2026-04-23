@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
-import { moveCard, resizeCard, bringToFront, removeCard, setSelected, toggleCardCollapsed } from '@/shared/state/canvasSlice'
+import { moveCard, moveSelected, resizeCard, bringToFront, removeCard, setSelected, toggleCardCollapsed } from '@/shared/state/canvasSlice'
 import { removeSession, updateStatus } from '@/shared/state/agentsSlice'
 import { AgentChat } from '../AgentChat/AgentChat'
 import { wsManager } from '@/shared/ws/WebSocketManager'
@@ -58,12 +58,19 @@ export function AgentCard({ card }: { card: CardPosition }) {
     isDragging.current = true
     dragStart.current = { x: e.clientX, y: e.clientY, cardX: card.x, cardY: card.y }
     dispatch(bringToFront(card.session_id))
+    const isGroupDrag = selectedCards.includes(card.session_id) && selectedCards.length > 1
+    let lastDx = 0, lastDy = 0
 
     const onMove = (ev: MouseEvent) => {
       if (!isDragging.current) return
       const dx = ev.clientX - dragStart.current.x
       const dy = ev.clientY - dragStart.current.y
-      dispatch(moveCard({ sessionId: card.session_id, x: dragStart.current.cardX + dx, y: dragStart.current.cardY + dy }))
+      if (isGroupDrag) {
+        dispatch(moveSelected({ dx: dx - lastDx, dy: dy - lastDy, ids: selectedCards }))
+        lastDx = dx; lastDy = dy
+      } else {
+        dispatch(moveCard({ sessionId: card.session_id, x: dragStart.current.cardX + dx, y: dragStart.current.cardY + dy }))
+      }
     }
     const onUp = () => {
       isDragging.current = false

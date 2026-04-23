@@ -1,9 +1,10 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '../state/store'
 import { clearApprovalRequest } from '../state/agentsSlice'
 import { bringToFront } from '../state/canvasSlice'
 import { wsManager } from '../ws/WebSocketManager'
+import { getShortcuts, matchesBinding } from '../prefs'
 
 interface ShortcutCallbacks {
   onToggleNewAgent: () => void
@@ -16,14 +17,20 @@ export function useKeyboardShortcuts(callbacks: ShortcutCallbacks) {
   const dispatch = useDispatch<AppDispatch>()
   const sessions = useSelector((s: RootState) => s.agents.sessions)
   const cards = useSelector((s: RootState) => s.canvas.cards)
+  const [bindings, setBindings] = useState(getShortcuts())
+
+  useEffect(() => {
+    const onChange = () => setBindings(getShortcuts())
+    window.addEventListener('agentcanvas:prefs-changed', onChange)
+    return () => window.removeEventListener('agentcanvas:prefs-changed', onChange)
+  }, [])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
     if (target.isContentEditable) return
 
-    // Shift+A: approve all pending
-    if (e.key === 'A' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    if (matchesBinding(e, bindings.approveAll)) {
       e.preventDefault()
       for (const s of Object.values(sessions)) {
         if (s.pendingApproval) {
@@ -34,8 +41,7 @@ export function useKeyboardShortcuts(callbacks: ShortcutCallbacks) {
       return
     }
 
-    // Shift+D: deny all pending
-    if (e.key === 'D' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    if (matchesBinding(e, bindings.denyAll)) {
       e.preventDefault()
       for (const s of Object.values(sessions)) {
         if (s.pendingApproval) {
@@ -60,11 +66,11 @@ export function useKeyboardShortcuts(callbacks: ShortcutCallbacks) {
       return
     }
 
-    if (e.key === 'n') { e.preventDefault(); callbacks.onToggleNewAgent(); return }
-    if (e.key === 's') { e.preventDefault(); callbacks.onToggleSettings(); return }
-    if (e.key === 'h') { e.preventDefault(); callbacks.onToggleHistory(); return }
-    if (e.key === 't') { e.preventDefault(); callbacks.onToggleTemplates(); return }
-  }, [sessions, cards, dispatch, callbacks])
+    if (matchesBinding(e, bindings.newAgent)) { e.preventDefault(); callbacks.onToggleNewAgent(); return }
+    if (matchesBinding(e, bindings.settings)) { e.preventDefault(); callbacks.onToggleSettings(); return }
+    if (matchesBinding(e, bindings.history)) { e.preventDefault(); callbacks.onToggleHistory(); return }
+    if (matchesBinding(e, bindings.templates)) { e.preventDefault(); callbacks.onToggleTemplates(); return }
+  }, [sessions, cards, dispatch, callbacks, bindings])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)

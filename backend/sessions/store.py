@@ -345,3 +345,67 @@ def load_layout() -> dict[str, CardPosition]:
     _migrate_old_layout()
     cards, _connections, _groups = load_dashboard_layout("default")
     return cards
+
+
+# --- App settings (API keys, provider config) ---
+
+_SETTINGS_DEFAULTS: dict = {
+    "provider_config": {"ollama_base_url": "http://localhost:11434"},
+    "api_keys": {},  # {"anthropic": "...", "openai": "..."}
+}
+
+
+def _settings_path() -> Path:
+    return _data_dir() / "settings.json"
+
+
+def load_app_settings() -> dict:
+    path = _settings_path()
+    if not path.exists():
+        return {**_SETTINGS_DEFAULTS}
+    try:
+        data = json.loads(path.read_text())
+        merged = {**_SETTINGS_DEFAULTS, **data}
+        merged["provider_config"] = {
+            **_SETTINGS_DEFAULTS["provider_config"],
+            **(data.get("provider_config") or {}),
+        }
+        merged["api_keys"] = data.get("api_keys") or {}
+        return merged
+    except Exception:
+        logger.warning("Failed to load app settings; using defaults")
+        return {**_SETTINGS_DEFAULTS}
+
+
+def save_app_settings(settings: dict) -> dict:
+    current = load_app_settings()
+    if "provider_config" in settings:
+        current["provider_config"] = {
+            **current["provider_config"],
+            **(settings["provider_config"] or {}),
+        }
+    if "api_keys" in settings:
+        # Only overwrite keys the user explicitly set (non-empty means set/update; empty means clear)
+        for k, v in (settings["api_keys"] or {}).items():
+            if v:
+                current["api_keys"][k] = v
+            else:
+                current["api_keys"].pop(k, None)
+    _settings_path().write_text(json.dumps(current, indent=2))
+    return current
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "*" * len(key)
+    return key[:4] + "…" + key[-4:]
+
+
+def public_app_settings() -> dict:
+    s = load_app_settings()
+    return {
+        "provider_config": s["provider_config"],
+        "api_keys_set": {k: _mask_key(v) for k, v in s["api_keys"].items()},
+    }

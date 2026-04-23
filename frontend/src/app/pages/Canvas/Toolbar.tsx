@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
-import { createSession, fetchProviders, fetchSessions } from '@/shared/state/agentsSlice'
+import { createSession, fetchProviders, fetchSessions, clearApprovalRequest } from '@/shared/state/agentsSlice'
 import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup, setConstraints } from '@/shared/state/canvasSlice'
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
@@ -378,6 +378,45 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
           Group ({selectedCards.length})
         </button>
       )}
+
+      {(() => {
+        const pending = Object.values(sessions).filter(s => s.pendingApproval)
+        if (pending.length === 0) return null
+        return (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              onClick={() => {
+                for (const s of pending) {
+                  wsManager.sendApprovalResponse(s.pendingApproval!.approvalId, true)
+                  dispatch(clearApprovalRequest(s.id))
+                }
+              }}
+              style={{
+                padding: '6px 10px', background: 'transparent', color: '#66bb6a',
+                border: '1px solid #2e5a2e', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              }}
+              title="Approve all pending tool requests (Shift+A)"
+            >
+              Approve all ({pending.length})
+            </button>
+            <button
+              onClick={() => {
+                for (const s of pending) {
+                  wsManager.sendApprovalResponse(s.pendingApproval!.approvalId, false)
+                  dispatch(clearApprovalRequest(s.id))
+                }
+              }}
+              style={{
+                padding: '6px 10px', background: 'transparent', color: '#ef5350',
+                border: '1px solid #5a2e2e', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              }}
+              title="Deny all pending tool requests (Shift+D)"
+            >
+              Deny all
+            </button>
+          </div>
+        )
+      })()}
 
       {/* Input Card dropdown */}
       <div style={{ position: 'relative' }}>

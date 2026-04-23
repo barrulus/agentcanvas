@@ -6,7 +6,9 @@ import { AgentCard } from './AgentCard'
 import { InputCardComponent } from './InputCardComponent'
 import { ViewCardComponent } from './ViewCardComponent'
 import { GateCardComponent } from './GateCardComponent'
-import { debouncedSaveLayout, addConnection, removeConnection, updateConnectionContract, toggleGroupCollapsed, moveGroup, deleteGroup, renameGroup } from '@/shared/state/canvasSlice'
+import { debouncedSaveLayout, addConnection, removeConnection, updateConnectionContract, toggleGroupCollapsed, moveGroup, deleteGroup, renameGroup, setSelected, removeCard } from '@/shared/state/canvasSlice'
+import { removeSession } from '@/shared/state/agentsSlice'
+import { getCanvasPrefs } from '@/shared/prefs'
 
 type Port = { x: number; y: number; nx: number; ny: number }
 
@@ -61,6 +63,7 @@ export function Canvas() {
   const currentDashboardId = useSelector((s: RootState) => s.canvas.currentDashboardId)
   const constraints = useSelector((s: RootState) => s.canvas.constraints)
   const blockedConnections = useSelector((s: RootState) => s.canvas.blockedConnections)
+  const selectedCards = useSelector((s: RootState) => s.canvas.selectedCards)
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
 
@@ -80,17 +83,46 @@ export function Canvas() {
   // Group dragging state
   const groupDrag = useRef<{ groupId: string; startX: number; startY: number } | null>(null)
 
+  // Box-select (marquee) state — canvas-space coordinates
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null)
+
   useEffect(() => {
     if (Object.keys(cards).length > 0 || connections.length > 0 || Object.keys(groups).length > 0 || constraints) {
       debouncedSaveLayout(currentDashboardId, cards, connections, groups, constraints)
     }
   }, [cards, connections, groups, constraints, currentDashboardId])
 
+  // Delete/Backspace removes all selected cards
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const t = e.target as HTMLElement
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (selectedCards.length === 0) return
+      e.preventDefault()
+      for (const id of selectedCards) {
+        dispatch(removeCard(id))
+        dispatch(removeSession(id))
+        fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {})
+      }
+      dispatch(setSelected([]))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedCards, dispatch])
+
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
   const [zoom, setZoom] = useState(1)
   const isPanning = useRef(false)
   const lastMouse = useRef({ x: 0, y: 0 })
+  const [prefs, setPrefsState] = useState(getCanvasPrefs())
+  useEffect(() => {
+    const onChange = () => setPrefsState(getCanvasPrefs())
+    window.addEventListener('agentcanvas:prefs-changed', onChange)
+    return () => window.removeEventListener('agentcanvas:prefs-changed', onChange)
+  }, [])
 
   const clampZoom = useCallback((z: number) => Math.min(3, Math.max(0.15, z)), [])
 
@@ -123,13 +155,13 @@ export function Canvas() {
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (e.altKey) {
       e.preventDefault()
-      const delta = -e.deltaY * 0.01
+      const delta = -e.deltaY * 0.01 * prefs.zoomSensitivity
       setZoom(z => clampZoom(z * (1 + delta)))
     } else {
       setPanX(x => x - e.deltaX)
       setPanY(y => y - e.deltaY)
     }
-  }, [clampZoom])
+  }, [clampZoom, prefs.zoomSensitivity])
 
   const screenToCanvas = useCallback((sx: number, sy: number) => {
     const rect = viewportRef.current?.getBoundingClientRect()
@@ -145,14 +177,31 @@ export function Canvas() {
       setContextMenu(null)
       return
     }
+    // Shift+left-click on empty canvas: start marquee
+    if (e.button === 0 && e.shiftKey && e.target === viewportRef.current) {
+      const p = screenToCanvas(e.clientX, e.clientY)
+      marqueeStart.current = p
+      setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
+      e.preventDefault()
+      return
+    }
     if (e.button === 1 || (e.button === 0 && e.target === viewportRef.current)) {
+      // Click on empty canvas clears selection
+      if (e.button === 0 && selectedCards.length > 0) {
+        dispatch(setSelected([]))
+      }
       isPanning.current = true
       lastMouse.current = { x: e.clientX, y: e.clientY }
       e.preventDefault()
     }
-  }, [contextMenu])
+  }, [contextMenu, screenToCanvas, selectedCards.length, dispatch])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (marqueeStart.current) {
+      const p = screenToCanvas(e.clientX, e.clientY)
+      setMarquee({ x0: marqueeStart.current.x, y0: marqueeStart.current.y, x1: p.x, y1: p.y })
+      return
+    }
     if (drawingFrom) {
       setDrawingMouse(screenToCanvas(e.clientX, e.clientY))
       return
@@ -179,11 +228,33 @@ export function Canvas() {
   const handleMouseUp = useCallback(() => {
     isPanning.current = false
     groupDrag.current = null
+    if (marqueeStart.current && marquee) {
+      const minX = Math.min(marquee.x0, marquee.x1)
+      const maxX = Math.max(marquee.x0, marquee.x1)
+      const minY = Math.min(marquee.y0, marquee.y1)
+      const maxY = Math.max(marquee.y0, marquee.y1)
+      const hit: string[] = []
+      for (const c of Object.values(cards)) {
+        // skip cards hidden inside collapsed groups
+        const hidden = Object.values(groups).some(g => g.collapsed && g.memberIds.includes(c.session_id))
+        if (hidden) continue
+        const dims = getEffectiveDimensions(c)
+        if (dims.x + dims.width >= minX && dims.x <= maxX && dims.y + dims.height >= minY && dims.y <= maxY) {
+          hit.push(c.session_id)
+        }
+      }
+      if (hit.length > 0 || Math.abs(marquee.x1 - marquee.x0) + Math.abs(marquee.y1 - marquee.y0) > 4) {
+        dispatch(setSelected(hit))
+      }
+      marqueeStart.current = null
+      setMarquee(null)
+      return
+    }
     if (drawingFrom) {
       setDrawingFrom(null)
       setDrawingMouse(null)
     }
-  }, [drawingFrom])
+  }, [drawingFrom, marquee, cards, groups, dispatch])
 
   // Port interaction: start drawing connection
   const handlePortMouseDown = useCallback((cardId: string, e: React.MouseEvent) => {
@@ -297,8 +368,8 @@ export function Canvas() {
         position: 'absolute',
         inset: 0,
         backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)`,
-        backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-        backgroundPosition: `${panX % (24 * zoom)}px ${panY % (24 * zoom)}px`,
+        backgroundSize: `${prefs.gridSize * zoom}px ${prefs.gridSize * zoom}px`,
+        backgroundPosition: `${panX % (prefs.gridSize * zoom)}px ${panY % (prefs.gridSize * zoom)}px`,
         pointerEvents: 'none',
       }} />
 
@@ -570,6 +641,22 @@ export function Canvas() {
             if (inCollapsedGroup) return null
             return renderPorts(id, getEffectiveDimensions(card), drawingFrom != null || hoverCardId === id)
           })}
+
+          {/* Marquee selection rectangle */}
+          {marquee && (
+            <rect
+              x={Math.min(marquee.x0, marquee.x1)}
+              y={Math.min(marquee.y0, marquee.y1)}
+              width={Math.abs(marquee.x1 - marquee.x0)}
+              height={Math.abs(marquee.y1 - marquee.y0)}
+              fill="#4fc3f7"
+              fillOpacity={0.1}
+              stroke="#4fc3f7"
+              strokeWidth={1}
+              strokeDasharray="4 4"
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
         </svg>
       </div>
 

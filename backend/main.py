@@ -479,6 +479,26 @@ async def set_permissions(request: Request):
     return {"ok": True}
 
 
+# --- App settings (API keys, provider config) ---
+
+
+@app.get("/api/settings")
+async def get_app_settings():
+    from backend.sessions.store import public_app_settings
+    return public_app_settings()
+
+
+@app.put("/api/settings")
+async def update_app_settings(request: Request):
+    from backend.sessions.store import save_app_settings, public_app_settings
+    body = await request.json()
+    save_app_settings(body)
+    # Apply runtime changes: re-init providers so new Ollama base URL takes effect
+    from backend.providers.registry import apply_settings_update
+    apply_settings_update()
+    return public_app_settings()
+
+
 # --- Session Close / Reopen ---
 
 
