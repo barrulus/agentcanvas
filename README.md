@@ -8,12 +8,13 @@ Inspired by [OpenSwarm](https://github.com/openswarm-ai/openswarm), rebuilt from
 
 ## Highlights
 
-- **Spatial canvas** — infinite zoomable workspace, multi-dashboard, BPMN-style collapsible cards, groups
+- **Spatial canvas** — infinite zoomable workspace, multi-dashboard, BPMN-style collapsible cards, groups, marquee box-select
 - **Multi-provider** — Claude Code (CLI subprocess) and Ollama (HTTP API), no API key needed for Claude Max
 - **Workflow orchestration** — input cards, agent cards, view cards, **gate cards** (arbiter/synthesizer), and connections with conditions, transforms, JSON schema validation, **circuit breakers**, and **workflow-level shared constraints**
 - **Named routing** — `{{route:AgentName}}` tags for decision/router agents
 - **MCP tool integration** — stdio servers, per-tool permission policies, human-in-the-loop approval, built-in `invoke_agent` for sub-agent spawning
-- **Session management** — real-time streaming, cost tracking, message branching, git worktree isolation, persistent across restarts
+- **Configurable** — tabbed settings for API keys, Ollama base URL, canvas preferences (zoom sensitivity, grid size), and rebindable keyboard shortcuts
+- **Session management** — real-time streaming, cost tracking, message branching, git worktree isolation, persistent across restarts, retry/edit any prompt
 
 See the [full documentation](docs/index.md) for details.
 

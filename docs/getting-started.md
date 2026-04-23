@@ -58,6 +58,14 @@ Open **http://localhost:5173** in your browser.
 | `AGENTCANVAS_PORT` | `8325` | Backend port |
 | `XDG_DATA_HOME` | `~/.local/share` | Data storage root |
 
+Further configuration happens in **Settings** (press `s` or click the gear icon). The tabbed settings page covers:
+
+- **Providers & API keys** — Anthropic / OpenAI API keys (stored locally in `settings.json`, applied as env vars) and the Ollama base URL
+- **MCP Servers** — add and configure MCP stdio/http servers
+- **Command Policies** — allow/deny/ask rules for shell commands agents may run
+- **Canvas** — zoom sensitivity, grid size (stored in browser `localStorage`)
+- **Shortcuts** — click-to-record rebinding for the shortcuts listed below
+
 ## Your First Agent
 
 1. Click **"+ New Agent"** in the top-right toolbar
@@ -90,6 +98,8 @@ See [Workflow Orchestration](workflows.md) for a complete guide. Quick steps:
 
 ## Keyboard Shortcuts
 
+All single-key and modifier shortcuts below (except the fixed `1–9` agent focus and `Alt+Scroll` zoom) can be rebound in **Settings → Shortcuts**.
+
 | Key | Action |
 |-----|--------|
 | `1-9` | Focus agent card by position |
@@ -99,8 +109,12 @@ See [Workflow Orchestration](workflows.md) for a complete guide. Quick steps:
 | `t` | Toggle templates panel |
 | `Shift+A` | Approve all pending tool approvals |
 | `Shift+D` | Deny all pending tool approvals |
-| `Ctrl+Click` | Multi-select cards (for grouping) |
+| `Ctrl+Click` / `Cmd+Click` | Toggle card in selection |
+| `Shift+Drag` | Marquee (box) select on empty canvas |
+| `Delete` / `Backspace` | Delete all selected cards |
 | `Alt+Scroll` | Zoom in/out |
+
+With two or more cards selected, dragging any one of them moves the whole selection together, and a **Group (N)** button appears in the toolbar to wrap them into a named group. When any session has a pending tool approval, **Approve all / Deny all** toolbar buttons also appear.
 
 ## MCP Server Setup
 

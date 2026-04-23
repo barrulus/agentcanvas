@@ -229,6 +229,36 @@ PUT /api/permissions
 }
 ```
 
+## App Settings
+
+Stored server-side in `~/.local/share/agentcanvas/settings.json`. Covers API keys and provider configuration. Canvas preferences and keyboard shortcut bindings are frontend-only (`localStorage`) and are not exposed via this API.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/settings` | Get provider config and masked API key fingerprints |
+| PUT | `/api/settings` | Update provider config and/or API keys; re-initialises providers |
+
+```json
+GET /api/settings
+{
+  "provider_config": { "ollama_base_url": "http://localhost:11434" },
+  "api_keys_set": { "anthropic": "sk-a…1b2c" }  // masked, read-only
+}
+```
+
+```json
+PUT /api/settings
+{
+  "provider_config": { "ollama_base_url": "http://ollama.lan:11434" },
+  "api_keys": {
+    "anthropic": "sk-ant-…",   // non-empty sets/updates the key
+    "openai": ""                // empty string clears it
+  }
+}
+```
+
+On save, API keys are also exported as `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in the backend process so provider SDKs pick them up. Keys are stored as plaintext JSON — treat the data directory accordingly.
+
 ## Templates
 
 | Method | Path | Description |

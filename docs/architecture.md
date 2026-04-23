@@ -173,6 +173,9 @@ All data persists as JSON files in `~/.local/share/agentcanvas/` (respects `XDG_
   templates/{id}.json         # Custom prompt templates
   modes/{id}.json             # Custom agent modes
   permissions.json            # Tool permission policies
+  settings.json               # API keys + provider config (Ollama base URL)
 ```
+
+Canvas UI preferences (zoom sensitivity, grid size) and keyboard shortcut bindings are stored per-browser in `localStorage` under `agentcanvas.canvasPrefs` / `agentcanvas.shortcuts`.
 
 No database required. Files are read/written atomically via Python's `pathlib`.
