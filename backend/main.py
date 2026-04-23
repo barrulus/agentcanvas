@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
     input_manager.restore_input_cards()
     from backend.agents.gate_manager import gate_manager
     gate_manager.restore_gate_cards()
+    from backend.agents.dialogue_manager import dialogue_manager
+    dialogue_manager.restore_dialogue_cards()
     from backend.templates.store import seed_builtin_templates
     seed_builtin_templates()
     yield
@@ -286,6 +288,77 @@ async def delete_gate_card(card_id: str):
 async def reset_gate_card(card_id: str):
     from backend.agents.gate_manager import gate_manager
     await gate_manager.reset(card_id)
+    return {"ok": True}
+
+
+# --- Dialogue Cards ---
+
+
+@app.post("/api/dialogue-cards")
+async def create_dialogue_card_endpoint(request: Request):
+    from backend.agents.dialogue_manager import dialogue_manager
+    from backend.agents.models import DialogueParticipant
+    body = await request.json()
+    participants = [
+        DialogueParticipant.model_validate(p) for p in (body.get("participants") or [])
+    ]
+    card = dialogue_manager.create_dialogue_card(
+        name=body.get("name", "Dialogue"),
+        participants=participants,
+        max_turns=int(body.get("max_turns", 20)),
+        termination_rule=body.get("termination_rule") or None,
+        initial_prompt=body.get("initial_prompt", ""),
+        output_mode=body.get("output_mode", "last_message"),
+        dashboard_id=body.get("dashboard_id"),
+    )
+    return card.model_dump()
+
+
+@app.get("/api/dialogue-cards")
+async def list_dialogue_cards(request: Request):
+    from backend.agents.dialogue_manager import dialogue_manager
+    dashboard_id = request.query_params.get("dashboard_id")
+    cards = dialogue_manager.list_dialogue_cards(dashboard_id)
+    return {"dialogue_cards": [c.model_dump() for c in cards]}
+
+
+@app.get("/api/dialogue-cards/{card_id}")
+async def get_dialogue_card(card_id: str):
+    from backend.agents.dialogue_manager import dialogue_manager
+    card = dialogue_manager.get_dialogue_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.put("/api/dialogue-cards/{card_id}")
+async def update_dialogue_card(card_id: str, request: Request):
+    from backend.agents.dialogue_manager import dialogue_manager
+    body = await request.json()
+    card = dialogue_manager.update_dialogue_card(card_id, body)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.delete("/api/dialogue-cards/{card_id}")
+async def delete_dialogue_card(card_id: str):
+    from backend.agents.dialogue_manager import dialogue_manager
+    dialogue_manager.delete_dialogue_card(card_id)
+    return {"ok": True}
+
+
+@app.post("/api/dialogue-cards/{card_id}/start")
+async def start_dialogue_card(card_id: str):
+    from backend.agents.dialogue_manager import dialogue_manager
+    await dialogue_manager.start_manually(card_id)
+    return {"ok": True}
+
+
+@app.post("/api/dialogue-cards/{card_id}/reset")
+async def reset_dialogue_card(card_id: str):
+    from backend.agents.dialogue_manager import dialogue_manager
+    await dialogue_manager.reset(card_id)
     return {"ok": True}
 
 

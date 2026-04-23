@@ -6,6 +6,7 @@ import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard,
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
 import { createGateCard, fetchGateCards } from '@/shared/state/gateCardsSlice'
+import { createDialogueCard, fetchDialogueCards } from '@/shared/state/dialogueCardsSlice'
 import { fetchModes } from '@/shared/state/modesSlice'
 import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
@@ -78,6 +79,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         dispatch(fetchViewCards(currentDashboardId))
         dispatch(fetchInputCards(currentDashboardId))
         dispatch(fetchGateCards(currentDashboardId))
+        dispatch(fetchDialogueCards(currentDashboardId))
       }
     })
   }, [dispatch])
@@ -171,6 +173,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     dispatch(fetchViewCards(dashboardId))
     dispatch(fetchInputCards(dashboardId))
     dispatch(fetchGateCards(dashboardId))
+    dispatch(fetchDialogueCards(dashboardId))
   }
 
   const handleCreateViewCard = async () => {
@@ -492,6 +495,32 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         title="Add a gate/arbiter card (collects and resolves multiple inputs)"
       >
         + Gate Card
+      </button>
+
+      <button
+        onClick={async () => {
+          const result = await dispatch(createDialogueCard({
+            name: 'Dialogue',
+            participants: [],
+            max_turns: 20,
+            output_mode: 'last_message',
+            dashboard_id: currentDashboardId,
+          })).unwrap()
+          dispatch(placeCard({ sessionId: result.id, card_type: 'dialogue' }))
+        }}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#ba68c8',
+          border: '1px solid #4a2a5a',
+          borderRadius: 6,
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: 'pointer',
+        }}
+        title="Add a dialogue card (orchestrator-driven multi-turn council)"
+      >
+        + Dialogue Card
       </button>
 
       <button

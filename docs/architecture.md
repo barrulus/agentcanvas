@@ -169,6 +169,7 @@ All data persists as JSON files in `~/.local/share/agentcanvas/` (respects `XDG_
   input_cards/{id}.json       # Input card configs
   view_cards/{id}.json        # View card content
   gate_cards/{id}.json        # Gate (arbiter) card state and resolved output
+  dialogue_cards/{id}.json    # Dialogue card configs + transcripts + final output
   mcp_servers/{id}.json       # MCP server configurations
   templates/{id}.json         # Custom prompt templates
   modes/{id}.json             # Custom agent modes

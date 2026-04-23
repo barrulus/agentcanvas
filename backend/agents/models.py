@@ -55,7 +55,7 @@ class CardPosition(BaseModel):
     width: float = 480
     height: float = 280
     z_order: int = 0
-    card_type: Literal["agent", "view", "input", "gate"] = "agent"
+    card_type: Literal["agent", "view", "input", "gate", "dialogue"] = "agent"
     collapsed: bool = False
 
 
@@ -103,6 +103,41 @@ class GateCard(BaseModel):
     status: Literal["idle", "waiting", "resolving", "completed", "error"] = "idle"
     pending_inputs: dict[str, str] = Field(default_factory=dict)  # connection_id -> output text
     resolved_output: str = ""
+    dashboard_id: Optional[str] = None
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+
+
+class DialogueParticipant(BaseModel):
+    name: str
+    description: str = ""  # Injected into orchestrator's roster
+    role: Literal["orchestrator", "worker"] = "worker"
+    provider_id: str
+    model: str
+    system_prompt: str = ""
+    context_mode: Literal["full", "last_n", "question_only"] = "question_only"
+    context_last_n: int = 5  # Used when context_mode="last_n"
+    max_context_tokens: Optional[int] = None  # Soft trim; None = no cap
+
+
+class DialogueTurn(BaseModel):
+    speaker: str  # participant name, or "user" for the seed prompt
+    content: str
+    timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
+    cost_usd: float = 0.0
+
+
+class DialogueCard(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Dialogue"
+    participants: list[DialogueParticipant] = Field(default_factory=list)
+    max_turns: int = 20
+    termination_rule: Optional[str] = None  # e.g. "contains:CONSENSUS", "regex:DONE"
+    initial_prompt: str = ""
+    output_mode: Literal["last_message", "full_transcript"] = "last_message"
+    status: Literal["idle", "running", "completed", "error"] = "idle"
+    transcript: list[DialogueTurn] = Field(default_factory=list)
+    final_output: str = ""
+    current_speaker: Optional[str] = None
     dashboard_id: Optional[str] = None
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 

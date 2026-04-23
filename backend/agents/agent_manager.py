@@ -75,6 +75,14 @@ async def clear_downstream(
             await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
             continue
 
+        # Clear dialogue card
+        from backend.agents.dialogue_manager import dialogue_manager
+        dialogue_card = dialogue_manager.get_dialogue_card(target_id)
+        if dialogue_card:
+            await dialogue_manager.reset(target_id)
+            await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
+            continue
+
         # Clear view card content
         from backend.sessions.store import load_view_card, save_view_card
         view_card = load_view_card(target_id)
@@ -139,6 +147,10 @@ async def route_to_downstream(
         gc = gate_manager.get_gate_card(target_id)
         if gc:
             return gc.name
+        from backend.agents.dialogue_manager import dialogue_manager
+        dc = dialogue_manager.get_dialogue_card(target_id)
+        if dc:
+            return dc.name
         from backend.sessions.store import load_view_card, load_input_card
         vc = load_view_card(target_id)
         if vc:
@@ -230,6 +242,13 @@ async def route_to_downstream(
         gate_card = gate_manager.get_gate_card(target_id)
         if gate_card:
             await gate_manager.receive_input(target_id, conn.id, routed_text)
+            return
+
+        # Target is a dialogue card
+        from backend.agents.dialogue_manager import dialogue_manager
+        dialogue_card = dialogue_manager.get_dialogue_card(target_id)
+        if dialogue_card:
+            await dialogue_manager.receive_input(target_id, conn.id, routed_text)
             return
 
         # Target is a view card

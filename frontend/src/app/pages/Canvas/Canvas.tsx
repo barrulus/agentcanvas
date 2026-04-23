@@ -6,6 +6,7 @@ import { AgentCard } from './AgentCard'
 import { InputCardComponent } from './InputCardComponent'
 import { ViewCardComponent } from './ViewCardComponent'
 import { GateCardComponent } from './GateCardComponent'
+import { DialogueCardComponent } from './DialogueCardComponent'
 import { debouncedSaveLayout, addConnection, removeConnection, updateConnectionContract, toggleGroupCollapsed, moveGroup, deleteGroup, renameGroup, setSelected, removeCard } from '@/shared/state/canvasSlice'
 import { removeSession } from '@/shared/state/agentsSlice'
 import { getCanvasPrefs } from '@/shared/prefs'
@@ -507,6 +508,8 @@ export function Canvas() {
               ? <InputCardComponent key={card.session_id} card={card} />
               : card.card_type === 'gate'
               ? <GateCardComponent key={card.session_id} card={card} />
+              : card.card_type === 'dialogue'
+              ? <DialogueCardComponent key={card.session_id} card={card} />
               : <AgentCard key={card.session_id} card={card} />
           })}
         </AnimatePresence>

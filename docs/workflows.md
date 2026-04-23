@@ -49,6 +49,44 @@ A gate card waits until **every** upstream connection has delivered an output, t
 
 **Reset:** Click "Reset" on the gate header to clear pending inputs and start over.
 
+### Dialogue Cards
+
+Dialogue cards encapsulate a **multi-turn orchestrator-driven exchange** between N participants inside a single card. Unlike gate cards (one-shot resolution of parallel inputs), dialogue cards run a sequential loop: an orchestrator participant drives the conversation, delegates specific questions to worker participants, and decides when to stop. The whole loop lives inside the card, so graph connections stay one-way — the card produces a single final output that routes downstream normally.
+
+**Creating a dialogue card:** Click "+ Dialogue Card" in the toolbar. An empty card appears. Click **Configure** to add participants and settings, then **Run** (or route input from an upstream card).
+
+**Participants** have:
+
+| Field | Description |
+|-------|-------------|
+| `role` | `orchestrator` (drives the loop) or `worker` (answers questions) |
+| `name` | Used as the routing tag — the orchestrator calls workers as `{{ask:Name}}` |
+| `description` | Short expertise summary — auto-injected into the orchestrator's system prompt as a roster |
+| `provider_id` + `model` | Independent per participant. Mix Claude + Ollama + others freely. |
+| `system_prompt` | Persona / behaviour. Workers get theirs verbatim; the orchestrator's is extended with the roster + routing instructions. |
+| `context_mode` | What they see of the transcript: `full`, `last_n:N`, or `question_only` (just the orchestrator's latest message to them, with the ask tag stripped). |
+
+**Orchestrator tags**:
+- `{{ask:Name}}` — route the next turn to worker `Name`. The orchestrator's reply *is* the prompt that worker sees.
+- `{{done}}` — end the loop; the orchestrator's current reply becomes the final output.
+- A reply with no tag also ends the loop.
+
+**Termination**: loop stops on `{{done}}`, on a `termination_rule` match against the orchestrator's output (`contains:CONSENSUS` / `regex:…`), or when `max_turns` is exceeded (in which case the last orchestrator message is taken as-is).
+
+**Output modes**:
+- `last_message`: the final orchestrator reply with any tags stripped (default).
+- `full_transcript`: the whole labelled exchange.
+
+**Patterns this enables**:
+
+| Pattern | Shape |
+|---------|-------|
+| **Two-agent debate** | Two orchestrators… or one orchestrator + one worker set to `context_mode: full`. The orchestrator asks, the worker argues, orchestrator synthesises. |
+| **Council of specialists** | One orchestrator + N workers with distinct system prompts (e.g. Python / JS / Rust experts). Orchestrator routes queries via `{{ask:Python}}` and reconciles the answers. |
+| **Asymmetric context** | Orchestrator on a big-context model (e.g. Claude) with `context_mode: full` holding the plan; small-context workers (e.g. `qwen3:4b`) with `context_mode: question_only` answering one bounded question at a time. Cost scales `orchestrator × turns + Σ(worker × times_asked)`. |
+
+**Reset / re-run**: the card clears its transcript whenever an upstream card re-routes input, or you can click **Reset** manually.
+
 ### Connections
 
 Draw a connection by clicking a port (cyan dot) on one card and dragging to another card's port. Connections define the flow of data between cards.

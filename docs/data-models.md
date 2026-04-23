@@ -55,7 +55,7 @@ Layout position for a card on the canvas.
 | `width` | float | 480 | Card width in pixels |
 | `height` | float | 280 | Card height in pixels |
 | `z_order` | int | 0 | Z-index for layering |
-| `card_type` | enum | `"agent"` | `agent`, `view`, `input`, `gate` |
+| `card_type` | enum | `"agent"` | `agent`, `view`, `input`, `gate`, `dialogue` |
 | `collapsed` | bool | false | Whether card is collapsed to BPMN-style icon |
 
 ## Connection
@@ -115,6 +115,49 @@ Arbiter card that collects multiple upstream outputs and resolves them into one 
 | `created_at` | float | now | Unix timestamp |
 
 A gate card auto-triggers resolution once `pending_inputs` covers every incoming connection's ID. Workflow [shared constraints](workflows.md#workflow-level-shared-constraints) are appended to the resolution system prompt.
+
+## DialogueCard
+
+Orchestrator-driven multi-turn exchange between N participants, encapsulated in one card. See [Dialogue Cards](workflows.md#dialogue-cards).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | uuid | Card identifier |
+| `name` | string | `"Dialogue"` | Display name |
+| `participants` | DialogueParticipant[] | [] | Ordered list; exactly one should have `role="orchestrator"` |
+| `max_turns` | int | 20 | Safety cap on total turns (orchestrator + workers combined) |
+| `termination_rule` | string? | null | `contains:X` or `regex:X` — matched against orchestrator output |
+| `initial_prompt` | string | `""` | Seed shown to the orchestrator on turn 0 |
+| `output_mode` | enum | `"last_message"` | `last_message` (last orchestrator reply, tags stripped) or `full_transcript` |
+| `status` | enum | `"idle"` | `idle`, `running`, `completed`, `error` |
+| `transcript` | DialogueTurn[] | [] | Full turn-by-turn log |
+| `final_output` | string | `""` | What routes downstream on completion |
+| `current_speaker` | string? | null | Populated while `status="running"` |
+| `dashboard_id` | string? | null | Which dashboard |
+| `created_at` | float | now | Unix timestamp |
+
+### DialogueParticipant
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | Used as the routing tag (`{{ask:Name}}`) |
+| `description` | string | `""` | Injected into the orchestrator's auto-generated roster |
+| `role` | enum | `"worker"` | `orchestrator` or `worker` |
+| `provider_id` | string | required | Independent per participant |
+| `model` | string | required | Independent per participant |
+| `system_prompt` | string | `""` | Persona / behaviour |
+| `context_mode` | enum | `"question_only"` | `full`, `last_n`, or `question_only` |
+| `context_last_n` | int | 5 | Window size when `context_mode="last_n"` |
+| `max_context_tokens` | int? | null | Soft cap on visible transcript (not yet enforced in v1) |
+
+### DialogueTurn
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `speaker` | string | required | Participant name, or `"user"` for the seed prompt |
+| `content` | string | required | Turn text |
+| `timestamp` | float | now | Unix timestamp |
+| `cost_usd` | float | 0.0 | Per-turn cost (where the provider reports one) |
 
 ## CardGroup
 

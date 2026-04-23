@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, GateCard, InputCard, ViewCard
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, DialogueCard, GateCard, InputCard, ViewCard
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +178,45 @@ def load_all_gate_cards() -> list[GateCard]:
 
 def delete_gate_card_file(card_id: str) -> None:
     path = _gate_cards_dir() / f"{card_id}.json"
+    path.unlink(missing_ok=True)
+
+
+# --- Dialogue Cards ---
+
+def _dialogue_cards_dir() -> Path:
+    d = _data_dir() / "dialogue_cards"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def save_dialogue_card(card: DialogueCard) -> None:
+    path = _dialogue_cards_dir() / f"{card.id}.json"
+    path.write_text(json.dumps(card.model_dump(), indent=2))
+
+
+def load_dialogue_card(card_id: str) -> DialogueCard | None:
+    path = _dialogue_cards_dir() / f"{card_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return DialogueCard.model_validate_json(path.read_text())
+    except Exception:
+        logger.warning("Failed to load dialogue card %s", card_id)
+        return None
+
+
+def load_all_dialogue_cards() -> list[DialogueCard]:
+    cards = []
+    for path in _dialogue_cards_dir().glob("*.json"):
+        try:
+            cards.append(DialogueCard.model_validate_json(path.read_text()))
+        except Exception:
+            logger.warning("Skipping corrupt dialogue card file %s", path.name)
+    return cards
+
+
+def delete_dialogue_card_file(card_id: str) -> None:
+    path = _dialogue_cards_dir() / f"{card_id}.json"
     path.unlink(missing_ok=True)
 
 

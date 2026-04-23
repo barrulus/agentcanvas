@@ -213,6 +213,54 @@ POST /api/mcp-servers
 }
 ```
 
+## Dialogue Cards
+
+Multi-turn orchestrator-driven exchanges between N participants. See the [workflows doc](workflows.md#dialogue-cards) for the conceptual model.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/dialogue-cards` | Create dialogue card |
+| GET | `/api/dialogue-cards?dashboard_id=` | List cards (optionally scoped) |
+| GET | `/api/dialogue-cards/{id}` | Get card (includes transcript + final_output) |
+| PUT | `/api/dialogue-cards/{id}` | Update (name, participants, max_turns, termination_rule, initial_prompt, output_mode) |
+| DELETE | `/api/dialogue-cards/{id}` | Delete card |
+| POST | `/api/dialogue-cards/{id}/start` | Run the loop with the configured initial_prompt (no upstream trigger needed) |
+| POST | `/api/dialogue-cards/{id}/reset` | Clear transcript and final output |
+
+```json
+POST /api/dialogue-cards
+{
+  "name": "Code review council",
+  "participants": [
+    {
+      "role": "orchestrator",
+      "name": "Chair",
+      "description": "",
+      "provider_id": "claude-code",
+      "model": "sonnet",
+      "system_prompt": "You chair a panel of language specialists…",
+      "context_mode": "full"
+    },
+    {
+      "role": "worker",
+      "name": "Python",
+      "description": "Python 3, async, typing",
+      "provider_id": "ollama",
+      "model": "qwen3:4b",
+      "system_prompt": "You are a senior Python engineer.",
+      "context_mode": "question_only"
+    }
+  ],
+  "max_turns": 20,
+  "termination_rule": "contains:CONSENSUS",
+  "initial_prompt": "Review this PR and decide whether to merge.",
+  "output_mode": "last_message",
+  "dashboard_id": "default"
+}
+```
+
+Progress is broadcast over the dashboard WebSocket as `dialogue_card:update` events with the full card body.
+
 ## Permissions
 
 | Method | Path | Description |
