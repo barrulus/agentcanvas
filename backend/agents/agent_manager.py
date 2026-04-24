@@ -280,6 +280,7 @@ class AgentManager:
         dashboard_id: str | None = None,
         cwd: str | None = None,
         mode_id: str | None = None,
+        tools_enabled: bool = True,
     ) -> AgentSession:
         # Apply mode settings
         effective_system_prompt = system_prompt
@@ -310,6 +311,7 @@ class AgentManager:
             model=model,
             name=name or "Agent",
             system_prompt=effective_system_prompt,
+            tools_enabled=tools_enabled,
             dashboard_id=dashboard_id,
             cwd=effective_cwd,
             mode_id=mode_id,
@@ -319,7 +321,10 @@ class AgentManager:
         self.sessions[session.id] = session
 
         provider = get_provider(provider_id)
-        await provider.start_session(session.id, model, effective_system_prompt, effective_cwd)
+        await provider.start_session(
+            session.id, model, effective_system_prompt, effective_cwd,
+            tools_enabled=tools_enabled,
+        )
 
         save_session(session)
         await ws_manager.broadcast_dashboard(
@@ -339,6 +344,7 @@ class AgentManager:
             await provider.start_session(
                 session.id, session.model, session.system_prompt,
                 session.cwd,
+                tools_enabled=session.tools_enabled,
             )
 
     async def send_message(self, session_id: str, content: str) -> None:
@@ -753,6 +759,7 @@ class AgentManager:
         system_prompt: str | None = None,
         dashboard_id: str | None = None,
         silent: bool = False,
+        tools_enabled: bool = True,
     ) -> dict:
         """Spawn a sub-agent, send it a message, wait for completion, return result."""
         session = await self.create_session(
@@ -761,6 +768,7 @@ class AgentManager:
             name="Sub-agent",
             system_prompt=system_prompt,
             cwd=None,
+            tools_enabled=tools_enabled,
         )
         session.parent_session_id = parent_session_id
         if dashboard_id:

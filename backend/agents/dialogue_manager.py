@@ -224,6 +224,7 @@ class DialogueManager:
             system_prompt=system_prompt,
             dashboard_id=card.dashboard_id,
             silent=True,
+            tools_enabled=speaker.tools_enabled,
         )
         output = str(result.get("response") or "").strip()
         card.transcript.append(DialogueTurn(

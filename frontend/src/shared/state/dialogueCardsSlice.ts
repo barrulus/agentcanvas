@@ -7,6 +7,7 @@ export interface DialogueParticipant {
   provider_id: string
   model: string
   system_prompt: string
+  tools_enabled?: boolean
   context_mode: 'full' | 'last_n' | 'question_only'
   context_last_n: number
   max_context_tokens: number | null

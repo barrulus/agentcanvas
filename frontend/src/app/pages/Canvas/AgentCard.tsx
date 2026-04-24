@@ -33,6 +33,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [editSystemPrompt, setEditSystemPrompt] = useState('')
+  const [editToolsEnabled, setEditToolsEnabled] = useState(true)
   const isDragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, cardX: 0, cardY: 0 })
 
@@ -281,6 +282,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
             e.stopPropagation()
             setEditName(session.name || '')
             setEditSystemPrompt(session.system_prompt || '')
+            setEditToolsEnabled(session.tools_enabled !== false)
             setEditing(true)
           }}
           style={{
@@ -381,6 +383,19 @@ export function AgentCard({ card }: { card: CardPosition }) {
             }}
           />
 
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#888', cursor: 'pointer', marginTop: 4 }}
+            title="Expose MCP tools to this agent"
+          >
+            <input
+              type="checkbox"
+              checked={editToolsEnabled}
+              onChange={e => setEditToolsEnabled(e.target.checked)}
+              style={{ accentColor: '#4fc3f7' }}
+            />
+            Enable MCP tools for this agent
+          </label>
+
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
             <button
               onClick={() => setEditing(false)}
@@ -394,6 +409,7 @@ export function AgentCard({ card }: { card: CardPosition }) {
                 const updates: Record<string, any> = {}
                 if (editName.trim() && editName.trim() !== session.name) updates.name = editName.trim()
                 if (editSystemPrompt !== (session.system_prompt || '')) updates.system_prompt = editSystemPrompt
+                if (editToolsEnabled !== (session.tools_enabled !== false)) updates.tools_enabled = editToolsEnabled
                 if (Object.keys(updates).length > 0) {
                   const res = await fetch(`/api/sessions/${card.session_id}`, {
                     method: 'PATCH',

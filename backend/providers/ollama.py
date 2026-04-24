@@ -40,6 +40,7 @@ class OllamaProvider(AgentProvider):
         model: str,
         system_prompt: Optional[str] = None,
         cwd: Optional[str] = None,
+        tools_enabled: bool = True,
     ) -> None:
         messages: list[dict] = []
         if system_prompt:
@@ -47,6 +48,7 @@ class OllamaProvider(AgentProvider):
         self._sessions[session_id] = {
             "model": model,
             "messages": messages,
+            "tools_enabled": tools_enabled,
         }
 
     async def send_message(
@@ -60,7 +62,7 @@ class OllamaProvider(AgentProvider):
 
         # Get available tools from executor (MCP servers + built-ins)
         tools: list[dict] = []
-        if self._tool_executor:
+        if self._tool_executor and state.get("tools_enabled", True):
             tools = await self._tool_executor.get_available_tools()
 
         # Agentic loop: LLM call -> tool calls -> LLM call -> ...

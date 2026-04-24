@@ -30,10 +30,12 @@ class _SessionState:
         model: str,
         system_prompt: Optional[str] = None,
         cwd: Optional[str] = None,
+        tools_enabled: bool = True,
     ):
         self.model = model
         self.system_prompt = system_prompt
         self.cwd = cwd
+        self.tools_enabled = tools_enabled
         self.proc: Optional[asyncio.subprocess.Process] = None
 
 
@@ -53,9 +55,10 @@ class ClaudeCodeProvider(AgentProvider):
         model: str,
         system_prompt: Optional[str] = None,
         cwd: Optional[str] = None,
+        tools_enabled: bool = True,
     ) -> None:
         self._sessions[session_id] = _SessionState(
-            model=model, system_prompt=system_prompt, cwd=cwd
+            model=model, system_prompt=system_prompt, cwd=cwd, tools_enabled=tools_enabled,
         )
 
     async def send_message(
@@ -85,10 +88,11 @@ class ClaudeCodeProvider(AgentProvider):
         # Prompt MUST come before --mcp-config (which is variadic and eats remaining args)
         cmd.append(content)
 
-        # Inject invoke_agent MCP server
-        mcp_config = self._build_mcp_config(session_id)
-        if mcp_config:
-            cmd.extend(["--mcp-config", mcp_config])
+        # Inject invoke_agent MCP server (skipped entirely when tools disabled on this card)
+        if state.tools_enabled:
+            mcp_config = self._build_mcp_config(session_id)
+            if mcp_config:
+                cmd.extend(["--mcp-config", mcp_config])
 
         backend_port = os.environ.get("AGENTCANVAS_PORT", "8325")
         env = {

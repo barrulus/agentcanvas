@@ -87,6 +87,7 @@ async def create_session(request: Request):
         dashboard_id=body.get("dashboard_id"),
         cwd=body.get("cwd"),
         mode_id=body.get("mode_id"),
+        tools_enabled=bool(body.get("tools_enabled", True)),
     )
     return session.model_dump()
 
@@ -124,7 +125,20 @@ async def update_session(session_id: str, request: Request):
         # Update provider's session state too
         provider = get_provider(session.provider_id)
         if hasattr(provider, '_sessions') and session.id in provider._sessions:
-            provider._sessions[session.id].system_prompt = body["system_prompt"]
+            state = provider._sessions[session.id]
+            if hasattr(state, "system_prompt"):
+                state.system_prompt = body["system_prompt"]
+            elif isinstance(state, dict):
+                state["system_prompt"] = body["system_prompt"]
+    if "tools_enabled" in body:
+        session.tools_enabled = bool(body["tools_enabled"])
+        provider = get_provider(session.provider_id)
+        if hasattr(provider, '_sessions') and session.id in provider._sessions:
+            state = provider._sessions[session.id]
+            if hasattr(state, "tools_enabled"):
+                state.tools_enabled = session.tools_enabled
+            elif isinstance(state, dict):
+                state["tools_enabled"] = session.tools_enabled
     save_session(session)
     await ws_manager.broadcast_dashboard(
         "agent:status",

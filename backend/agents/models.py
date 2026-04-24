@@ -31,6 +31,7 @@ class AgentSession(BaseModel):
     model: str
     status: Literal["idle", "running", "completed", "error", "stopped"] = "idle"
     system_prompt: Optional[str] = None
+    tools_enabled: bool = True
     messages: list[Message] = Field(default_factory=list)
     cost_usd: float = 0.0
     tokens: dict[str, int] = Field(
@@ -114,6 +115,7 @@ class DialogueParticipant(BaseModel):
     provider_id: str
     model: str
     system_prompt: str = ""
+    tools_enabled: bool = True
     context_mode: Literal["full", "last_n", "question_only"] = "question_only"
     context_last_n: int = 5  # Used when context_mode="last_n"
     max_context_tokens: Optional[int] = None  # Soft trim; None = no cap

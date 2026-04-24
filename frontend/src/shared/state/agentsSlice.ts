@@ -34,6 +34,7 @@ interface AgentSession {
   worktree_path?: string | null
   repo_path?: string | null
   system_prompt?: string | null
+  tools_enabled?: boolean
   cwd?: string | null
   active_branch_id?: string | null
   branches?: Record<string, BranchInfo>

@@ -363,6 +363,33 @@ function ConfigureDialog({ card, onClose, onSave }: {
   const [initialPrompt, setInitialPrompt] = useState(card.initial_prompt || '')
   const [outputMode, setOutputMode] = useState<'last_message' | 'full_transcript'>(card.output_mode || 'last_message')
   const [modelsByProvider, setModelsByProvider] = useState<Record<string, Array<{ id: string; name: string }>>>({})
+  // Collapsed state per participant index — start expanded when freshly added, collapsed otherwise.
+  const [collapsedParts, setCollapsedParts] = useState<Set<number>>(() => new Set(card.participants.map((_, i) => i)))
+  const initialSnapshot = useRef(JSON.stringify({
+    participants: card.participants, maxTurns: card.max_turns, termination: card.termination_rule || '',
+    initialPrompt: card.initial_prompt || '', outputMode: card.output_mode || 'last_message',
+  }))
+
+  const isDirty = () => JSON.stringify({
+    participants, maxTurns, termination, initialPrompt, outputMode,
+  }) !== initialSnapshot.current
+
+  const tryClose = useCallback(() => {
+    if (isDirty() && !window.confirm('Discard unsaved changes?')) return
+    onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, maxTurns, termination, initialPrompt, outputMode])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        tryClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tryClose])
 
   const ensureModelsLoaded = async (providerId: string) => {
     if (!providerId || modelsByProvider[providerId]) return
@@ -382,21 +409,37 @@ function ConfigureDialog({ card, onClose, onSave }: {
 
   const addParticipant = (role: 'orchestrator' | 'worker') => {
     const defaultProvider = providers[0]?.id || ''
-    setParticipants(prev => [
-      ...prev,
-      {
+    setParticipants(prev => {
+      const newPart: DialogueParticipant = {
         name: role === 'orchestrator' ? 'Orchestrator' : `Worker ${prev.filter(p => p.role === 'worker').length + 1}`,
         description: '',
         role,
         provider_id: defaultProvider,
         model: '',
         system_prompt: '',
+        tools_enabled: role === 'orchestrator',  // workers default to no tools; orchestrators keep them
         context_mode: role === 'orchestrator' ? 'full' : 'question_only',
         context_last_n: 5,
         max_context_tokens: null,
-      },
-    ])
+      }
+      const next = [...prev, newPart]
+      // New participant is expanded by default; everything else stays as the user left it
+      setCollapsedParts(curr => {
+        const nc = new Set(curr)
+        nc.delete(next.length - 1)
+        return nc
+      })
+      return next
+    })
     if (defaultProvider) ensureModelsLoaded(defaultProvider)
+  }
+
+  const toggleCollapsed = (i: number) => {
+    setCollapsedParts(curr => {
+      const nc = new Set(curr)
+      if (nc.has(i)) nc.delete(i); else nc.add(i)
+      return nc
+    })
   }
 
   const updatePart = (i: number, patch: Partial<DialogueParticipant>) => {
@@ -417,17 +460,16 @@ function ConfigureDialog({ card, onClose, onSave }: {
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100002,
       }}
-      onClick={onClose}
     >
       <div
-        onClick={e => e.stopPropagation()}
         style={{
           background: '#0a0a0f', borderRadius: 12, border: '1px solid #333',
           width: 640, maxHeight: '85vh', overflow: 'auto', padding: 24, position: 'relative',
         }}
       >
         <button
-          onClick={onClose}
+          onClick={tryClose}
+          title="Close (Esc)"
           style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer' }}
         >×</button>
 
@@ -478,98 +520,144 @@ function ConfigureDialog({ card, onClose, onSave }: {
           {!hasOrchestrator && <span style={{ color: '#ef5350', fontSize: 11, fontWeight: 400, marginLeft: 8 }}>Add one orchestrator to enable Run</span>}
         </h3>
 
-        {participants.map((p, i) => (
-          <div key={i} style={{
-            background: '#1a1a2e', borderRadius: 8, padding: 12, marginBottom: 10, border: '1px solid #333',
-          }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <select
-                value={p.role}
-                onChange={e => updatePart(i, { role: e.target.value as 'orchestrator' | 'worker' })}
-                style={{ ...inputStyle, width: 130, marginBottom: 0 }}
+        {participants.map((p, i) => {
+          const isCollapsed = collapsedParts.has(i)
+          const providerName = providers.find(pv => pv.id === p.provider_id)?.name || p.provider_id || '(no provider)'
+          const modelLabel = p.model || '(no model)'
+          return (
+            <div key={i} style={{
+              background: '#1a1a2e', borderRadius: 8, padding: isCollapsed ? '8px 12px' : 12,
+              marginBottom: 10, border: '1px solid #333',
+            }}>
+              <div
+                onClick={() => toggleCollapsed(i)}
+                style={{
+                  display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none',
+                  marginBottom: isCollapsed ? 0 : 8,
+                }}
+                title={isCollapsed ? 'Expand' : 'Collapse'}
               >
-                <option value="orchestrator">Orchestrator</option>
-                <option value="worker">Worker</option>
-              </select>
-              <input
-                value={p.name}
-                onChange={e => updatePart(i, { name: e.target.value })}
-                placeholder="Name (used in {{ask:Name}})"
-                style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
-              />
-              <button
-                onClick={() => removePart(i)}
-                style={{ background: 'transparent', color: '#e57373', border: '1px solid #5a2e2e', borderRadius: 4, cursor: 'pointer', padding: '4px 10px', fontSize: 11 }}
-              >Remove</button>
-            </div>
+                <span style={{ color: '#666', fontSize: 11, width: 12 }}>{isCollapsed ? '▶' : '▼'}</span>
+                <span style={{
+                  fontSize: 11, padding: '1px 6px', borderRadius: 3, fontWeight: 600,
+                  color: p.role === 'orchestrator' ? ACCENT : '#4fc3f7',
+                  background: p.role === 'orchestrator' ? '#2a1630' : '#12222a',
+                }}>{p.role}</span>
+                <span style={{ fontSize: 13, color: '#e0e0e0', fontWeight: 600, minWidth: 80 }}>
+                  {p.name || '(unnamed)'}
+                </span>
+                {isCollapsed && (
+                  <span style={{ fontSize: 11, color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {providerName} · {modelLabel} · ctx:{p.context_mode}{p.tools_enabled ? '' : ' · no-tools'}
+                  </span>
+                )}
+                {!isCollapsed && <span style={{ flex: 1 }} />}
+                <button
+                  onClick={(e) => { e.stopPropagation(); removePart(i) }}
+                  style={{ background: 'transparent', color: '#e57373', border: '1px solid #5a2e2e', borderRadius: 4, cursor: 'pointer', padding: '3px 8px', fontSize: 11 }}
+                >Remove</button>
+              </div>
 
-            <input
-              value={p.description}
-              onChange={e => updatePart(i, { description: e.target.value })}
-              placeholder={p.role === 'worker' ? "Short description shown to orchestrator (e.g. 'Python 3, async, typing')" : "Description (optional)"}
-              style={inputStyle}
-            />
+              {!isCollapsed && (
+                <div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, marginTop: 8 }}>
+                    <select
+                      value={p.role}
+                      onChange={e => updatePart(i, { role: e.target.value as 'orchestrator' | 'worker' })}
+                      style={{ ...inputStyle, width: 130, marginBottom: 0 }}
+                    >
+                      <option value="orchestrator">Orchestrator</option>
+                      <option value="worker">Worker</option>
+                    </select>
+                    <input
+                      value={p.name}
+                      onChange={e => updatePart(i, { name: e.target.value })}
+                      placeholder="Name (used in {{ask:Name}})"
+                      style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                    />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#888', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      title="Expose MCP tools to this participant"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={p.tools_enabled !== false}
+                        onChange={e => updatePart(i, { tools_enabled: e.target.checked })}
+                        style={{ accentColor: '#4fc3f7' }}
+                      />
+                      Tools
+                    </label>
+                  </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Provider</label>
-                <select
-                  value={p.provider_id}
-                  onChange={e => updatePart(i, { provider_id: e.target.value, model: '' })}
-                  style={inputStyle}
-                >
-                  <option value="">Select…</option>
-                  {providers.map(prov => (<option key={prov.id} value={prov.id}>{prov.name}</option>))}
-                </select>
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Model</label>
-                <select
-                  value={p.model}
-                  onChange={e => updatePart(i, { model: e.target.value })}
-                  disabled={!p.provider_id}
-                  style={inputStyle}
-                >
-                  <option value="">Select…</option>
-                  {(modelsByProvider[p.provider_id] || []).map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Context</label>
-                <select
-                  value={p.context_mode}
-                  onChange={e => updatePart(i, { context_mode: e.target.value as any })}
-                  style={inputStyle}
-                >
-                  <option value="full">Full transcript</option>
-                  <option value="last_n">Last N messages</option>
-                  <option value="question_only">Question only</option>
-                </select>
-              </div>
-              {p.context_mode === 'last_n' && (
-                <div style={{ width: 80 }}>
-                  <label style={labelStyle}>N</label>
                   <input
-                    type="number" min={1} max={50}
-                    value={p.context_last_n}
-                    onChange={e => updatePart(i, { context_last_n: parseInt(e.target.value) || 1 })}
+                    value={p.description}
+                    onChange={e => updatePart(i, { description: e.target.value })}
+                    placeholder={p.role === 'worker' ? "Short description shown to orchestrator (e.g. 'Python 3, async, typing')" : "Description (optional)"}
                     style={inputStyle}
+                  />
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Provider</label>
+                      <select
+                        value={p.provider_id}
+                        onChange={e => updatePart(i, { provider_id: e.target.value, model: '' })}
+                        style={inputStyle}
+                      >
+                        <option value="">Select…</option>
+                        {providers.map(prov => (<option key={prov.id} value={prov.id}>{prov.name}</option>))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Model</label>
+                      <select
+                        value={p.model}
+                        onChange={e => updatePart(i, { model: e.target.value })}
+                        disabled={!p.provider_id}
+                        style={inputStyle}
+                      >
+                        <option value="">Select…</option>
+                        {(modelsByProvider[p.provider_id] || []).map(m => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Context</label>
+                      <select
+                        value={p.context_mode}
+                        onChange={e => updatePart(i, { context_mode: e.target.value as any })}
+                        style={inputStyle}
+                      >
+                        <option value="full">Full transcript</option>
+                        <option value="last_n">Last N messages</option>
+                        <option value="question_only">Question only</option>
+                      </select>
+                    </div>
+                    {p.context_mode === 'last_n' && (
+                      <div style={{ width: 80 }}>
+                        <label style={labelStyle}>N</label>
+                        <input
+                          type="number" min={1} max={50}
+                          value={p.context_last_n}
+                          onChange={e => updatePart(i, { context_last_n: parseInt(e.target.value) || 1 })}
+                          style={inputStyle}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <label style={labelStyle}>System prompt (optional)</label>
+                  <textarea
+                    value={p.system_prompt}
+                    onChange={e => updatePart(i, { system_prompt: e.target.value })}
+                    placeholder={p.role === 'orchestrator' ? "How the orchestrator should behave. Roster is injected automatically." : "The worker's persona / expertise."}
+                    style={{ ...inputStyle, minHeight: 48, resize: 'vertical', fontFamily: 'inherit' }}
                   />
                 </div>
               )}
             </div>
-
-            <label style={labelStyle}>System prompt (optional)</label>
-            <textarea
-              value={p.system_prompt}
-              onChange={e => updatePart(i, { system_prompt: e.target.value })}
-              placeholder={p.role === 'orchestrator' ? "How the orchestrator should behave. Roster is injected automatically." : "The worker's persona / expertise."}
-              style={{ ...inputStyle, minHeight: 48, resize: 'vertical', fontFamily: 'inherit' }}
-            />
-          </div>
-        ))}
+          )
+        })}
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -593,7 +681,7 @@ function ConfigureDialog({ card, onClose, onSave }: {
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
           <button
-            onClick={onClose}
+            onClick={tryClose}
             style={{ padding: '8px 16px', background: 'transparent', color: '#888', border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
           >Cancel</button>
           <button

@@ -63,6 +63,7 @@ class AgentProvider(ABC):
         model: str,
         system_prompt: Optional[str] = None,
         cwd: Optional[str] = None,
+        tools_enabled: bool = True,
     ) -> None:
         """Initialize provider state for a session."""
 
