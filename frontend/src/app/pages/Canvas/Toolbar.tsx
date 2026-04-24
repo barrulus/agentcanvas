@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions, clearApprovalRequest } from '@/shared/state/agentsSlice'
@@ -293,6 +294,10 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
             onClick={() => handleSwitchDashboard(db.id)}
             onContextMenu={(e) => {
               e.preventDefault()
+              e.stopPropagation()
+              // Swallow the native event so the window listener we attach while the
+              // menu is open doesn't immediately close it on a repeat right-click.
+              e.nativeEvent.stopImmediatePropagation()
               setDashCtxMenu({ id: db.id, x: e.clientX, y: e.clientY })
             }}
             title="Right-click for rename / delete"
@@ -980,8 +985,9 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         </div>
       )}
 
-      {/* Dashboard tab context menu */}
-      {dashCtxMenu && (
+      {/* Dashboard tab context menu — portaled to body so it escapes any
+          transform/filter ancestor (e.g. the light-mode filter on <html>). */}
+      {dashCtxMenu && createPortal(
         <div
           style={{
             position: 'fixed', left: dashCtxMenu.x, top: dashCtxMenu.y,
@@ -1000,7 +1006,8 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
             onClick={() => { const id = dashCtxMenu.id; setDashCtxMenu(null); handleDeleteDashboard(id) }}
             style={{ ...dashCtxItemStyle, color: '#ef5350' }}
           >Delete dashboard</button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
