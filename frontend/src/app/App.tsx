@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Canvas } from './pages/Canvas/Canvas'
 import { Toolbar } from './pages/Canvas/Toolbar'
 import { Settings } from './pages/Settings/Settings'
@@ -6,6 +6,7 @@ import { History } from './pages/History/History'
 import { Templates } from './pages/Templates/Templates'
 import { PromptTemplate } from '@/shared/state/templatesSlice'
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts'
+import { getCanvasPrefs } from '@/shared/prefs'
 
 export function App() {
   const [showSettings, setShowSettings] = useState(false)
@@ -13,6 +14,34 @@ export function App() {
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<PromptTemplate | null>(null)
+
+  // Quick dark->light: invert + hue-rotate the whole document. Re-applied on pref changes.
+  // Images, videos, and canvas elements are counter-inverted so media renders correctly.
+  useEffect(() => {
+    const STYLE_ID = 'agentcanvas-light-mode-style'
+    if (!document.getElementById(STYLE_ID)) {
+      const s = document.createElement('style')
+      s.id = STYLE_ID
+      s.textContent = `
+        html[data-theme="light"] img,
+        html[data-theme="light"] video,
+        html[data-theme="light"] canvas,
+        html[data-theme="light"] svg image,
+        html[data-theme="light"] [data-no-invert] {
+          filter: invert(1) hue-rotate(180deg);
+        }
+      `
+      document.head.appendChild(s)
+    }
+    const apply = () => {
+      const light = getCanvasPrefs().lightMode
+      document.documentElement.style.filter = light ? 'invert(1) hue-rotate(180deg)' : ''
+      document.documentElement.dataset.theme = light ? 'light' : 'dark'
+    }
+    apply()
+    window.addEventListener('agentcanvas:prefs-changed', apply)
+    return () => window.removeEventListener('agentcanvas:prefs-changed', apply)
+  }, [])
 
   useKeyboardShortcuts({
     onToggleNewAgent: useCallback(() => setShowNewAgent(v => !v), []),

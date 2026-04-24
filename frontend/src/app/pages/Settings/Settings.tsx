@@ -429,6 +429,22 @@ export function Settings({ onClose }: SettingsProps) {
               style={{ width: '100%', marginBottom: 16 }}
             />
 
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#ccc', cursor: 'pointer', marginBottom: 8 }}
+              title="Quick dark→light via CSS filter. Not a real theme — some accents may look odd."
+            >
+              <input
+                type="checkbox"
+                checked={canvasPrefs.lightMode}
+                onChange={e => handleCanvasPrefChange({ lightMode: e.target.checked })}
+                style={{ accentColor: '#4fc3f7' }}
+              />
+              Light mode (experimental)
+            </label>
+            <p style={{ fontSize: 11, color: '#666', margin: '0 0 16px', paddingLeft: 24 }}>
+              Inverts the whole page and hue-rotates colours. Quick emergency switch; a real light theme will come later.
+            </p>
+
             <button
               onClick={() => { setCanvasPrefsState(DEFAULT_CANVAS_PREFS); setCanvasPrefs(DEFAULT_CANVAS_PREFS) }}
               style={{

@@ -4,6 +4,7 @@
 export interface CanvasPrefs {
   zoomSensitivity: number // multiplier on wheel deltaY; default 1.0
   gridSize: number        // pixels; default 24
+  lightMode: boolean      // CSS invert+hue-rotate hack; quick dark->light. Default false.
 }
 
 export interface ShortcutBindings {
@@ -18,6 +19,7 @@ export interface ShortcutBindings {
 export const DEFAULT_CANVAS_PREFS: CanvasPrefs = {
   zoomSensitivity: 1.0,
   gridSize: 24,
+  lightMode: false,
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBindings = {

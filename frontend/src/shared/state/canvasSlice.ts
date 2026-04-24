@@ -15,6 +15,27 @@ export const createDashboard = createAsyncThunk('canvas/createDashboard', async 
   return await res.json()
 })
 
+export const renameDashboard = createAsyncThunk(
+  'canvas/renameDashboard',
+  async ({ id, name }: { id: string; name: string }) => {
+    const res = await fetch(`/api/dashboards/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    return await res.json()
+  }
+)
+
+export const deleteDashboard = createAsyncThunk(
+  'canvas/deleteDashboard',
+  async (id: string, { rejectWithValue }) => {
+    const res = await fetch(`/api/dashboards/${id}`, { method: 'DELETE' })
+    if (!res.ok) return rejectWithValue(await res.text().catch(() => ''))
+    return id
+  }
+)
+
 export const loadLayout = createAsyncThunk('canvas/loadLayout', async (dashboardId: string) => {
   const res = await fetch(`/api/dashboards/${dashboardId}/layout`)
   const data = await res.json()
@@ -349,6 +370,21 @@ const canvasSlice = createSlice({
     })
     builder.addCase(createDashboard.fulfilled, (state, action) => {
       state.dashboards.push(action.payload)
+    })
+    builder.addCase(renameDashboard.fulfilled, (state, action) => {
+      const idx = state.dashboards.findIndex(d => d.id === action.payload.id)
+      if (idx >= 0) state.dashboards[idx] = action.payload
+    })
+    builder.addCase(deleteDashboard.fulfilled, (state, action) => {
+      state.dashboards = state.dashboards.filter(d => d.id !== action.payload)
+      // Clear any canvas state for the removed dashboard
+      if (state.currentDashboardId === action.payload) {
+        state.currentDashboardId = state.dashboards[0]?.id || ''
+        state.cards = {}
+        state.connections = []
+        state.groups = {}
+        state.constraints = ''
+      }
     })
   },
 })

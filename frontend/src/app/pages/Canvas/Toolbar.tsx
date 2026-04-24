@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AppDispatch, RootState } from '@/shared/state/store'
 import { createSession, fetchProviders, fetchSessions, clearApprovalRequest } from '@/shared/state/agentsSlice'
-import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, switchDashboard, createGroup, setConstraints } from '@/shared/state/canvasSlice'
+import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard, renameDashboard, deleteDashboard, switchDashboard, createGroup, setConstraints } from '@/shared/state/canvasSlice'
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
 import { createGateCard, fetchGateCards } from '@/shared/state/gateCardsSlice'
@@ -234,6 +234,42 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     handleSwitchDashboard(result.id)
   }
 
+  const [dashCtxMenu, setDashCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!dashCtxMenu) return
+    const close = () => setDashCtxMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('contextmenu', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('contextmenu', close)
+    }
+  }, [dashCtxMenu])
+
+  const handleRenameDashboard = async (id: string) => {
+    const db = dashboards.find(d => d.id === id)
+    const name = window.prompt('Rename dashboard:', db?.name || '')
+    if (!name || !name.trim() || name.trim() === db?.name) return
+    await dispatch(renameDashboard({ id, name: name.trim() }))
+  }
+
+  const handleDeleteDashboard = async (id: string) => {
+    const db = dashboards.find(d => d.id === id)
+    if (!db) return
+    if (dashboards.length <= 1) {
+      window.alert("Can't delete the last dashboard. Create another one first.")
+      return
+    }
+    if (!window.confirm(`Delete dashboard "${db.name}"? All its cards stay in history but the layout is gone.`)) return
+    const wasCurrent = id === currentDashboardId
+    await dispatch(deleteDashboard(id))
+    if (wasCurrent) {
+      const next = dashboards.find(d => d.id !== id)
+      if (next) handleSwitchDashboard(next.id)
+    }
+  }
+
   return (
     <div style={{
       height: 48,
@@ -255,6 +291,11 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
           <button
             key={db.id}
             onClick={() => handleSwitchDashboard(db.id)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setDashCtxMenu({ id: db.id, x: e.clientX, y: e.clientY })
+            }}
+            title="Right-click for rename / delete"
             style={{
               padding: '4px 10px',
               background: 'transparent',
@@ -938,8 +979,37 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
           </div>
         </div>
       )}
+
+      {/* Dashboard tab context menu */}
+      {dashCtxMenu && (
+        <div
+          style={{
+            position: 'fixed', left: dashCtxMenu.x, top: dashCtxMenu.y,
+            background: '#1a1a2e', border: '1px solid #333', borderRadius: 6,
+            padding: 4, zIndex: 100000, minWidth: 160,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          }}
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
+        >
+          <button
+            onClick={() => { const id = dashCtxMenu.id; setDashCtxMenu(null); handleRenameDashboard(id) }}
+            style={dashCtxItemStyle}
+          >Rename…</button>
+          <button
+            onClick={() => { const id = dashCtxMenu.id; setDashCtxMenu(null); handleDeleteDashboard(id) }}
+            style={{ ...dashCtxItemStyle, color: '#ef5350' }}
+          >Delete dashboard</button>
+        </div>
+      )}
     </div>
   )
+}
+
+const dashCtxItemStyle: React.CSSProperties = {
+  display: 'block', width: '100%', padding: '6px 12px',
+  background: 'transparent', color: '#ccc', border: 'none',
+  fontSize: 12, cursor: 'pointer', textAlign: 'left', borderRadius: 4,
 }
 
 const inputMenuItemStyle: React.CSSProperties = {
