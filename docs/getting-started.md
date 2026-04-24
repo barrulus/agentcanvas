@@ -63,7 +63,7 @@ Further configuration happens in **Settings** (press `s` or click the gear icon)
 - **Providers & API keys** — Anthropic / OpenAI API keys (stored locally in `settings.json`, applied as env vars) and the Ollama base URL
 - **MCP Servers** — add and configure MCP stdio/http servers
 - **Command Policies** — allow/deny/ask rules for shell commands agents may run
-- **Canvas** — zoom sensitivity, grid size (stored in browser `localStorage`)
+- **Canvas** — zoom sensitivity, grid size, and an experimental **Light mode** toggle (stored in browser `localStorage`). Light mode is a quick CSS-filter hack (`invert + hue-rotate`) with a counter-invert rule for images/video — not a designed theme. Enable it when the dark UI is painful in bright light; expect some accents (cyan, amber) to land in weaker spots of the complement. A real theme system is planned for later.
 - **Shortcuts** — click-to-record rebinding for the shortcuts listed below
 
 ## Your First Agent
@@ -95,6 +95,14 @@ See [Workflow Orchestration](workflows.md) for a complete guide. Quick steps:
 2. Create agents without initial messages (click "Create")
 3. Connect: Input Card -> Agent A -> Agent B -> View Card
 4. Type in the Input Card and click Send
+
+## Managing Dashboards
+
+Dashboards are the separate canvases listed as tabs in the top toolbar.
+
+- **Create:** click the `+` button next to the tabs.
+- **Switch:** click a tab.
+- **Rename / Delete:** right-click a tab for a context menu. Rename opens a prompt; Delete confirms first and then switches to the next remaining dashboard. The last dashboard cannot be deleted — create another one first. Deleting a dashboard removes its layout (card positions, connections, groups, constraints); the individual sessions and cards live in the session history and remain accessible.
 
 ## Keyboard Shortcuts
 
