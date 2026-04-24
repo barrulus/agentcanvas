@@ -45,6 +45,12 @@ class MCPRegistry:
         path.write_text(json.dumps(config.model_dump(), indent=2))
         return config
 
+    def persist_server(self, config: MCPServerConfig) -> None:
+        """Write current state of a config back to disk (used after OAuth)."""
+        path = _mcp_dir() / f"{config.id}.json"
+        path.write_text(json.dumps(config.model_dump(), indent=2))
+        self._tool_cache.pop(config.id, None)
+
     def update_server(self, server_id: str, updates: dict) -> MCPServerConfig | None:
         existing = self.get_server(server_id)
         if not existing:

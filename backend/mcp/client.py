@@ -146,7 +146,18 @@ class MCPConnection:
 
 
 async def discover_tools(config: MCPServerConfig) -> list[ToolSchema]:
-    """Connect to an MCP server, discover tools, and disconnect."""
+    """Connect to an MCP server, discover tools, and disconnect.
+
+    Dispatches to the appropriate transport (stdio or http/OAuth).
+    """
+    if config.transport == "http":
+        # Local import to avoid pulling httpx into stdio-only paths.
+        from backend.mcp.http_client import discover_tools_http
+        from backend.providers.registry import get_registry
+
+        registry = get_registry()
+        return await discover_tools_http(config, persist=registry.persist_server)
+
     conn = MCPConnection(config)
     try:
         await conn.connect()

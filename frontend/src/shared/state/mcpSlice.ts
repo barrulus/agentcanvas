@@ -7,6 +7,12 @@ interface MCPServer {
   command?: string
   args?: string[]
   url?: string
+  headers?: Record<string, string>
+  callback_port?: number | null
+  oauth_client_id?: string | null
+  oauth_scopes?: string[]
+  oauth_client?: unknown
+  oauth_tokens?: { access_token: string; expires_at?: number | null } | null
   env?: Record<string, string>
   enabled: boolean
 }
@@ -25,6 +31,8 @@ interface MCPState {
   tools: Record<string, ToolSchema[]>  // server_id -> tools
   permissions: Record<string, string>   // qualified_name -> policy
   loading: boolean
+  discoveringId: string | null
+  errorsById: Record<string, string>
 }
 
 const initialState: MCPState = {
@@ -32,6 +40,8 @@ const initialState: MCPState = {
   tools: {},
   permissions: {},
   loading: false,
+  discoveringId: null,
+  errorsById: {},
 }
 
 export const fetchServers = createAsyncThunk('mcp/fetchServers', async () => {
@@ -58,16 +68,27 @@ export const updateServer = createAsyncThunk('mcp/updateServer', async ({ id, up
   return await res.json() as MCPServer
 })
 
-export const deleteServer = createAsyncThunk('mcp/deleteServer', async (id: string) => {
-  await fetch(`/api/mcp-servers/${id}`, { method: 'DELETE' })
+export const deleteServer = createAsyncThunk('mcp/deleteServer', async (id: string, { rejectWithValue }) => {
+  const res = await fetch(`/api/mcp-servers/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    return rejectWithValue(body || `HTTP ${res.status}`)
+  }
   return id
 })
 
-export const discoverTools = createAsyncThunk('mcp/discoverTools', async (serverId: string) => {
-  const res = await fetch(`/api/mcp-servers/${serverId}/tools`)
-  const data = await res.json()
-  return { serverId, tools: data.tools as ToolSchema[] }
-})
+export const discoverTools = createAsyncThunk(
+  'mcp/discoverTools',
+  async (serverId: string, { rejectWithValue }) => {
+    // OAuth browser round-trip can take a while; extend tolerance here.
+    const res = await fetch(`/api/mcp-servers/${serverId}/tools`)
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return rejectWithValue({ serverId, error: data?.error || `HTTP ${res.status}` })
+    }
+    return { serverId, tools: data.tools as ToolSchema[] }
+  }
+)
 
 export const fetchPermissions = createAsyncThunk('mcp/fetchPermissions', async () => {
   const res = await fetch('/api/permissions')
@@ -87,7 +108,11 @@ export const setPermission = createAsyncThunk('mcp/setPermission', async ({ tool
 const mcpSlice = createSlice({
   name: 'mcp',
   initialState,
-  reducers: {},
+  reducers: {
+    clearServerError(state, action: { payload: string }) {
+      delete state.errorsById[action.payload]
+    },
+  },
   extraReducers: (builder) => {
     builder
       .addCase(fetchServers.fulfilled, (state, action) => { state.servers = action.payload })
@@ -99,9 +124,25 @@ const mcpSlice = createSlice({
       .addCase(deleteServer.fulfilled, (state, action) => {
         state.servers = state.servers.filter(s => s.id !== action.payload)
         delete state.tools[action.payload]
+        delete state.errorsById[action.payload]
+      })
+      .addCase(deleteServer.rejected, (state, action) => {
+        const id = action.meta.arg
+        state.errorsById[id] = `Delete failed: ${action.payload || action.error.message || ''}`
+      })
+      .addCase(discoverTools.pending, (state, action) => {
+        state.discoveringId = action.meta.arg
+        delete state.errorsById[action.meta.arg]
       })
       .addCase(discoverTools.fulfilled, (state, action) => {
+        state.discoveringId = null
         state.tools[action.payload.serverId] = action.payload.tools
+      })
+      .addCase(discoverTools.rejected, (state, action) => {
+        state.discoveringId = null
+        const payload = action.payload as { serverId: string; error: string } | undefined
+        if (payload) state.errorsById[payload.serverId] = payload.error
+        else state.errorsById[action.meta.arg] = action.error.message || 'Discovery failed'
       })
       .addCase(fetchPermissions.fulfilled, (state, action) => { state.permissions = action.payload })
       .addCase(setPermission.fulfilled, (state, action) => {
@@ -109,5 +150,7 @@ const mcpSlice = createSlice({
       })
   },
 })
+
+export const { clearServerError } = mcpSlice.actions
 
 export const mcpReducer = mcpSlice.reducer

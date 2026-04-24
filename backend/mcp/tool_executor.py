@@ -6,7 +6,9 @@ from uuid import uuid4
 from typing import Any
 
 from backend.mcp.client import MCPConnection
+from backend.mcp.http_client import HttpMCPConnection, HttpAuthRequired
 from backend.mcp.models import MCPServerConfig, ToolSchema
+from backend.mcp.oauth import perform_oauth_flow
 from backend.mcp.registry import MCPRegistry
 
 logger = logging.getLogger(__name__)
@@ -36,7 +38,8 @@ INVOKE_AGENT_TOOL = {
 class ToolExecutor:
     def __init__(self, registry: MCPRegistry):
         self._registry = registry
-        self._connections: dict[str, MCPConnection] = {}  # server_id -> connection
+        # Connections may be stdio or http; both expose the same call surface.
+        self._connections: dict[str, MCPConnection | HttpMCPConnection] = {}
         self._tool_index: dict[str, tuple[str, str]] = {}  # qualified_name -> (server_id, raw_name)
         self._pending_approvals: dict[str, asyncio.Future] = {}  # approval_id -> future
 
@@ -196,14 +199,17 @@ class ToolExecutor:
         if future and not future.done():
             future.set_result(approved)
 
-    async def _get_connection(self, server_id: str) -> MCPConnection | None:
-        """Get an existing connection or create a new one."""
+    async def _get_connection(self, server_id: str):
+        """Get an existing connection or create a new one (stdio or http)."""
         if server_id in self._connections:
             conn = self._connections[server_id]
-            # Check if process is still alive
-            if conn._proc and conn._proc.returncode is None:
+            alive = True
+            if isinstance(conn, MCPConnection):
+                alive = bool(conn._proc and conn._proc.returncode is None)
+            else:  # http
+                alive = conn._client is not None
+            if alive:
                 return conn
-            # Dead connection, remove it
             del self._connections[server_id]
 
         server = self._registry.get_server(server_id)
@@ -211,6 +217,23 @@ class ToolExecutor:
             return None
 
         try:
+            if server.transport == "http":
+                http_conn = HttpMCPConnection(server, persist=self._registry.persist_server)
+                await http_conn.connect()
+                try:
+                    await http_conn.initialize()
+                except HttpAuthRequired as e:
+                    client, tokens = await perform_oauth_flow(server, metadata_hint=e.metadata_url)
+                    server.oauth_client = client
+                    server.oauth_tokens = tokens
+                    self._registry.persist_server(server)
+                    await http_conn.close()
+                    http_conn = HttpMCPConnection(server, persist=self._registry.persist_server)
+                    await http_conn.connect()
+                    await http_conn.initialize()
+                self._connections[server_id] = http_conn
+                return http_conn
+
             conn = MCPConnection(server)
             await conn.connect()
             await conn.initialize()

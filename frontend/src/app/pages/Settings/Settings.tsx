@@ -9,6 +9,7 @@ import {
   discoverTools,
   fetchPermissions,
   setPermission,
+  clearServerError,
 } from '@/shared/state/mcpSlice'
 import { fetchPolicies, createPolicy, deletePolicy } from '@/shared/state/commandPolicySlice'
 import {
@@ -28,6 +29,8 @@ export function Settings({ onClose }: SettingsProps) {
   const servers = useSelector((s: RootState) => s.mcp.servers)
   const tools = useSelector((s: RootState) => s.mcp.tools)
   const permissions = useSelector((s: RootState) => s.mcp.permissions)
+  const discoveringId = useSelector((s: RootState) => s.mcp.discoveringId)
+  const errorsById = useSelector((s: RootState) => s.mcp.errorsById)
   const policies = useSelector((s: RootState) => s.commandPolicies.policies)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showPolicyForm, setShowPolicyForm] = useState(false)
@@ -48,13 +51,18 @@ export function Settings({ onClose }: SettingsProps) {
   const [shortcuts, setShortcutsState] = useState<ShortcutBindings>(getShortcuts())
   const [recordingBinding, setRecordingBinding] = useState<keyof ShortcutBindings | null>(null)
 
-  // Add form state
+  // Add/edit form state
+  const [editingServerId, setEditingServerId] = useState<string | null>(null)
   const [formName, setFormName] = useState('')
   const [formTransport, setFormTransport] = useState<'stdio' | 'http'>('stdio')
   const [formCommand, setFormCommand] = useState('')
   const [formArgs, setFormArgs] = useState('')
   const [formUrl, setFormUrl] = useState('')
   const [formEnv, setFormEnv] = useState('')
+  const [formHeaders, setFormHeaders] = useState('')
+  const [formCallbackPort, setFormCallbackPort] = useState('')
+  const [formOAuthClientId, setFormOAuthClientId] = useState('')
+  const [formOAuthScopes, setFormOAuthScopes] = useState('')
 
   useEffect(() => {
     dispatch(fetchServers())
@@ -127,16 +135,44 @@ export function Settings({ onClose }: SettingsProps) {
   }
 
   const resetForm = () => {
+    setEditingServerId(null)
     setFormName('')
     setFormTransport('stdio')
     setFormCommand('')
     setFormArgs('')
     setFormUrl('')
     setFormEnv('')
+    setFormHeaders('')
+    setFormCallbackPort('')
+    setFormOAuthClientId('')
+    setFormOAuthScopes('')
     setShowAddForm(false)
   }
 
-  const handleAddServer = async () => {
+  const handleEditServer = (server: typeof servers[number]) => {
+    setEditingServerId(server.id)
+    setFormName(server.name)
+    setFormTransport(server.transport)
+    setFormCommand(server.command || '')
+    setFormArgs((server.args || []).join(', '))
+    setFormUrl(server.url || '')
+    setFormEnv(
+      Object.entries(server.env || {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n')
+    )
+    setFormHeaders(
+      Object.entries(server.headers || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n')
+    )
+    setFormCallbackPort(server.callback_port ? String(server.callback_port) : '')
+    setFormOAuthClientId(server.oauth_client_id || '')
+    setFormOAuthScopes((server.oauth_scopes || []).join(' '))
+    setShowAddForm(true)
+  }
+
+  const handleSubmitServer = async () => {
     if (!formName.trim()) return
 
     const envObj: Record<string, string> = {}
@@ -147,15 +183,39 @@ export function Settings({ onClose }: SettingsProps) {
       }
     })
 
-    await dispatch(createServer({
+    const headersObj: Record<string, string> = {}
+    formHeaders.split('\n').forEach(line => {
+      const idx = line.indexOf(':')
+      if (idx > 0) {
+        headersObj[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+      }
+    })
+
+    const portNum = formCallbackPort.trim() ? parseInt(formCallbackPort.trim(), 10) : null
+    const callbackPort = portNum && !Number.isNaN(portNum) ? portNum : null
+    const scopes = formOAuthScopes.trim()
+      ? formOAuthScopes.trim().split(/\s+/).filter(Boolean)
+      : []
+
+    const payload = {
       name: formName,
       transport: formTransport,
       command: formTransport === 'stdio' ? formCommand : undefined,
-      args: formTransport === 'stdio' ? formArgs.split(',').map(a => a.trim()).filter(Boolean) : undefined,
+      args: formTransport === 'stdio' ? formArgs.split(',').map(a => a.trim()).filter(Boolean) : [],
       url: formTransport === 'http' ? formUrl : undefined,
-      env: Object.keys(envObj).length > 0 ? envObj : undefined,
+      headers: formTransport === 'http' ? headersObj : {},
+      callback_port: formTransport === 'http' ? callbackPort : null,
+      oauth_client_id: formTransport === 'http' ? (formOAuthClientId.trim() || null) : null,
+      oauth_scopes: formTransport === 'http' ? scopes : [],
+      env: envObj,
       enabled: true,
-    }))
+    }
+
+    if (editingServerId) {
+      await dispatch(updateServer({ id: editingServerId, updates: payload }))
+    } else {
+      await dispatch(createServer(payload))
+    }
     resetForm()
   }
 
@@ -163,11 +223,13 @@ export function Settings({ onClose }: SettingsProps) {
     dispatch(updateServer({ id: server.id, updates: { enabled: !server.enabled } }))
   }
 
-  const handleDeleteServer = (id: string) => {
-    dispatch(deleteServer(id))
+  const handleDeleteServer = (server: { id: string; name: string }) => {
+    if (!window.confirm(`Delete MCP server "${server.name}"? This cannot be undone.`)) return
+    dispatch(deleteServer(server.id))
   }
 
   const handleTestConnection = (serverId: string) => {
+    dispatch(clearServerError(serverId))
     dispatch(discoverTools(serverId))
   }
 
@@ -476,20 +538,36 @@ export function Settings({ onClose }: SettingsProps) {
               </label>
               <button
                 onClick={() => handleTestConnection(server.id)}
+                disabled={discoveringId === server.id}
                 style={{
                   padding: '4px 10px',
                   background: 'transparent',
-                  color: '#4fc3f7',
-                  border: '1px solid #4fc3f7',
+                  color: discoveringId === server.id ? '#666' : '#4fc3f7',
+                  border: `1px solid ${discoveringId === server.id ? '#333' : '#4fc3f7'}`,
+                  borderRadius: 4,
+                  fontSize: 11,
+                  cursor: discoveringId === server.id ? 'wait' : 'pointer',
+                }}
+                title={server.transport === 'http' ? 'Discover tools (may open a browser tab for OAuth)' : 'Discover tools'}
+              >
+                {discoveringId === server.id ? 'Testing…' : 'Test Connection'}
+              </button>
+              <button
+                onClick={() => handleEditServer(server)}
+                style={{
+                  padding: '4px 10px',
+                  background: 'transparent',
+                  color: '#ba68c8',
+                  border: '1px solid #ba68c8',
                   borderRadius: 4,
                   fontSize: 11,
                   cursor: 'pointer',
                 }}
               >
-                Test Connection
+                Edit
               </button>
               <button
-                onClick={() => handleDeleteServer(server.id)}
+                onClick={() => handleDeleteServer(server)}
                 style={{
                   padding: '4px 10px',
                   background: 'transparent',
@@ -503,6 +581,21 @@ export function Settings({ onClose }: SettingsProps) {
                 Delete
               </button>
             </div>
+
+            {errorsById[server.id] && (
+              <div style={{
+                marginTop: 6, marginBottom: 6,
+                padding: '6px 10px',
+                background: '#2e1414',
+                border: '1px solid #5a2e2e',
+                borderRadius: 4,
+                color: '#e57373',
+                fontSize: 11,
+                wordBreak: 'break-word',
+              }}>
+                {errorsById[server.id]}
+              </div>
+            )}
 
             {server.transport === 'stdio' && (
               <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
@@ -572,7 +665,9 @@ export function Settings({ onClose }: SettingsProps) {
             marginBottom: 12,
             border: '1px solid #4fc3f7',
           }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#e0e0e0' }}>Add Server</h3>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#e0e0e0' }}>
+              {editingServerId ? 'Edit Server' : 'Add Server'}
+            </h3>
 
             <label style={labelStyle}>Name</label>
             <input
@@ -616,8 +711,41 @@ export function Settings({ onClose }: SettingsProps) {
                 <input
                   value={formUrl}
                   onChange={e => setFormUrl(e.target.value)}
-                  placeholder="http://localhost:8080/mcp"
+                  placeholder="https://gitlab.example.com:8765/mcp"
                   style={inputStyle}
+                />
+
+                <label style={labelStyle}>OAuth callback port</label>
+                <input
+                  value={formCallbackPort}
+                  onChange={e => setFormCallbackPort(e.target.value)}
+                  placeholder="8765  (blank = default)"
+                  inputMode="numeric"
+                  style={inputStyle}
+                />
+
+                <label style={labelStyle}>OAuth client_id (optional — for pre-registered clients, skips dynamic registration)</label>
+                <input
+                  value={formOAuthClientId}
+                  onChange={e => setFormOAuthClientId(e.target.value)}
+                  placeholder="mi-c3.affectli.com"
+                  style={inputStyle}
+                />
+
+                <label style={labelStyle}>OAuth scopes (space-separated — optional; include 'offline_access' for refresh tokens)</label>
+                <input
+                  value={formOAuthScopes}
+                  onChange={e => setFormOAuthScopes(e.target.value)}
+                  placeholder="openid profile offline_access"
+                  style={inputStyle}
+                />
+
+                <label style={labelStyle}>Static headers (Header: value, one per line — optional)</label>
+                <textarea
+                  value={formHeaders}
+                  onChange={e => setFormHeaders(e.target.value)}
+                  placeholder={"Authorization: Bearer xxx\nX-Org: acme"}
+                  style={{ ...inputStyle, minHeight: 48, resize: 'vertical' }}
                 />
               </>
             )}
@@ -646,7 +774,7 @@ export function Settings({ onClose }: SettingsProps) {
                 Cancel
               </button>
               <button
-                onClick={handleAddServer}
+                onClick={handleSubmitServer}
                 disabled={!formName.trim()}
                 style={{
                   padding: '8px 16px',
@@ -660,7 +788,7 @@ export function Settings({ onClose }: SettingsProps) {
                   opacity: !formName.trim() ? 0.4 : 1,
                 }}
               >
-                Add Server
+                {editingServerId ? 'Save Changes' : 'Add Server'}
               </button>
             </div>
           </div>

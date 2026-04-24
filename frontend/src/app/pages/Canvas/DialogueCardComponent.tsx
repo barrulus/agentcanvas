@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
@@ -410,7 +411,7 @@ function ConfigureDialog({ card, onClose, onSave }: {
   const hasOrchestrator = participants.some(p => p.role === 'orchestrator')
   const canSave = hasOrchestrator && participants.every(p => p.name.trim() && p.provider_id && p.model)
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
@@ -612,7 +613,8 @@ function ConfigureDialog({ card, onClose, onSave }: {
           >Save</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

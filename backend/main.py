@@ -532,9 +532,20 @@ async def discover_mcp_tools(server_id: str):
     if not server:
         return JSONResponse({"error": "Not found"}, status_code=404)
     executor = get_tool_executor()
-    await executor.discover_and_cache(server_id)
-    tools = registry.get_cached_tools(server_id) or []
-    return {"tools": [t.model_dump() for t in tools]}
+    try:
+        # Direct call (bypasses the swallow-all in discover_and_cache) so we can
+        # surface errors — e.g. auth failures or unreachable URLs — to the UI.
+        from backend.mcp.client import discover_tools
+        tools = await discover_tools(server)
+        registry.set_cached_tools(server.id, tools)
+        for t in tools:
+            executor._tool_index[t.qualified_name] = (server.id, t.name)
+        return {"tools": [t.model_dump() for t in tools]}
+    except Exception as e:
+        logger.exception("Tool discovery failed for %s", server.name)
+        return JSONResponse(
+            {"error": str(e), "server_id": server_id}, status_code=502
+        )
 
 
 # --- Permissions ---
