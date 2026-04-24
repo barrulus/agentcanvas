@@ -2,6 +2,9 @@ node_modules
 .venv
 __pycache__
 dist
+.direnv/
+.envrc
+frontend/tsconfig.tsbuildinfo
 backend/data/sessions/*
 backend/data/dashboards/*
 !backend/data/sessions/.gitkeep
