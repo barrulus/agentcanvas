@@ -246,6 +246,7 @@ class ClaudeCodeProvider(AgentProvider):
                 }
 
         # Add all enabled user-configured stdio MCP servers
+        has_http = False
         if self._registry:
             from backend.mcp.registry import _sanitize_name
             for server in self._registry.get_enabled_servers():
@@ -258,6 +259,19 @@ class ClaudeCodeProvider(AgentProvider):
                     if server.env:
                         entry["env"] = server.env
                     mcp_servers[name] = entry
+                elif server.transport == "http":
+                    has_http = True
+
+        # HTTP MCP servers are proxied to Claude Code via a local stdio shim that
+        # calls back into our backend (which already handles OAuth, refresh, re-auth).
+        # Adding one shim surfaces every HTTP MCP to Claude Code in one shot.
+        if has_http:
+            proxy_script = Path(__file__).parent.parent / "mcp" / "http_proxy_server.py"
+            if proxy_script.exists():
+                mcp_servers["agentcanvas_http"] = {
+                    "command": sys.executable,
+                    "args": [str(proxy_script)],
+                }
 
         if not mcp_servers:
             return ""

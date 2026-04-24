@@ -539,6 +539,83 @@ async def delete_mcp_server(server_id: str):
     return {"ok": True}
 
 
+# --- Internal MCP proxy (used by http_proxy_server.py to forward HTTP MCP tools to
+#     Claude Code over stdio). Bound to 127.0.0.1 already; no auth beyond that. ---
+
+
+@app.get("/api/internal/mcp-proxy/tools")
+async def _mcp_proxy_list_tools():
+    """Aggregate tools from every enabled HTTP MCP server.
+
+    Triggers tool discovery (and OAuth if needed) for servers whose cache is empty.
+    """
+    registry = get_registry()
+    executor = get_tool_executor()
+    http_servers = [s for s in registry.get_enabled_servers() if s.transport == "http"]
+    tools_out: list[dict] = []
+    for server in http_servers:
+        cached = registry.get_cached_tools(server.id)
+        if not cached:
+            try:
+                await executor.discover_and_cache(server.id)
+                cached = registry.get_cached_tools(server.id) or []
+            except Exception as e:
+                logger.warning("mcp-proxy: discovery failed for %s: %s", server.name, e)
+                cached = []
+        for t in cached:
+            tools_out.append({
+                "name": t.qualified_name,
+                "description": t.description or t.name,
+                "inputSchema": t.input_schema or {"type": "object", "properties": {}},
+            })
+    return {"tools": tools_out}
+
+
+@app.post("/api/internal/mcp-proxy/call")
+async def _mcp_proxy_call_tool(request: Request):
+    """Invoke one tool on its owning HTTP MCP server.
+
+    Respects the registry's global deny policy but bypasses ``ask`` approval —
+    the caller is Claude Code, which has its own permission model and is invoked
+    with ``--dangerously-skip-permissions``.
+    """
+    body = await request.json()
+    qualified_name = body.get("qualified_name", "")
+    arguments = body.get("arguments", {}) or {}
+    if not qualified_name:
+        return JSONResponse({"error": "qualified_name required"}, status_code=400)
+
+    from backend.mcp.permissions import get_policy
+    if get_policy(qualified_name) == "deny":
+        return JSONResponse({"error": f"Tool '{qualified_name}' denied by policy"}, status_code=403)
+
+    executor = get_tool_executor()
+    entry = executor._tool_index.get(qualified_name)
+    if not entry:
+        # Cold cache — refresh HTTP server tools and try once more
+        registry = get_registry()
+        for server in registry.get_enabled_servers():
+            if server.transport == "http":
+                try:
+                    await executor.discover_and_cache(server.id)
+                except Exception:
+                    pass
+        entry = executor._tool_index.get(qualified_name)
+    if not entry:
+        return JSONResponse({"error": f"Unknown tool: {qualified_name}"}, status_code=404)
+
+    server_id, raw_name = entry
+    conn = await executor._get_connection(server_id)
+    if not conn:
+        return JSONResponse({"error": f"Could not connect to MCP server for {qualified_name}"}, status_code=502)
+    try:
+        out = await conn.call_tool(raw_name, arguments)
+        return {"content": out}
+    except Exception as e:
+        logger.exception("mcp-proxy: call failed for %s", qualified_name)
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
 @app.get("/api/mcp-servers/{server_id}/tools")
 async def discover_mcp_tools(server_id: str):
     registry = get_registry()
