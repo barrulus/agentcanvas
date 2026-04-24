@@ -12,7 +12,7 @@ Inspired by [OpenSwarm](https://github.com/openswarm-ai/openswarm), rebuilt from
 - **Multi-provider** — Claude Code (CLI subprocess) and Ollama (HTTP API), no API key needed for Claude Max
 - **Workflow orchestration** — input cards, agent cards, view cards, **gate cards** (arbiter/synthesizer), **dialogue cards** (orchestrator-driven multi-turn councils), and connections with conditions, transforms, JSON schema validation, **circuit breakers**, and **workflow-level shared constraints**
 - **Named routing** — `{{route:AgentName}}` tags for decision/router agents
-- **MCP tool integration** — stdio servers, per-tool permission policies, human-in-the-loop approval, built-in `invoke_agent` for sub-agent spawning
+- **MCP tool integration** — stdio and HTTP servers (full OAuth 2.1 + PKCE + dynamic client registration, per MCP spec 2025-03-26), per-tool permission policies, **per-card tool toggle** (disable tools for individual agents or dialogue participants), human-in-the-loop approval, built-in `invoke_agent` for sub-agent spawning
 - **Configurable** — tabbed settings for API keys, Ollama base URL, canvas preferences (zoom sensitivity, grid size), and rebindable keyboard shortcuts
 - **Session management** — real-time streaming, cost tracking, message branching, git worktree isolation, persistent across restarts, retry/edit any prompt
 

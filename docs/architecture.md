@@ -37,8 +37,10 @@ AgentCanvas is a full-stack application with a FastAPI backend and React fronten
 | Ollama Provider | `backend/providers/ollama.py` | HTTP client for Ollama's OpenAI-compatible API |
 | Provider Base | `backend/providers/base.py` | Abstract provider interface and streaming event types |
 | Provider Registry | `backend/providers/registry.py` | Singleton provider instances and tool executor |
-| MCP Client | `backend/mcp/client.py` | JSON-RPC 2.0 client for stdio MCP servers |
-| MCP Registry | `backend/mcp/registry.py` | Server config storage and tool caching |
+| MCP Client (stdio) | `backend/mcp/client.py` | JSON-RPC 2.0 over subprocess stdin/stdout; also dispatches to the HTTP client for `transport=http` |
+| MCP Client (http) | `backend/mcp/http_client.py` | Streamable HTTP transport (MCP spec 2025-03-26): JSON-RPC POST with SSE-or-JSON response, `Mcp-Session-Id`, transparent token refresh |
+| MCP OAuth | `backend/mcp/oauth.py` | OAuth 2.1 + PKCE + RFC 7591 dynamic client registration + RFC 9728 protected-resource metadata + local callback listener |
+| MCP Registry | `backend/mcp/registry.py` | Server config storage, token persistence, and tool caching |
 | Permissions | `backend/mcp/permissions.py` | Tool permission policies (always_allow/ask/deny) |
 | Invoke Agent Server | `backend/mcp/invoke_agent_server.py` | Built-in MCP server for sub-agent spawning |
 | Modes | `backend/modes/` | Agent mode definitions (Agent, Ask, Plan) |
@@ -54,7 +56,7 @@ class AgentProvider(ABC):
     display_name: str
     manages_own_tools: bool  # True = CLI handles tools, False = backend executes
 
-    async def start_session(session_id, model, system_prompt?, cwd?)
+    async def start_session(session_id, model, system_prompt?, cwd?, tools_enabled?)
     async def send_message(session_id, content) -> AsyncIterator[StreamEvent]
     async def stop_session(session_id)
     async def list_models() -> list[dict]
@@ -64,6 +66,63 @@ class AgentProvider(ABC):
 **Claude Code** (`manages_own_tools=True`): Spawns a `claude -p` subprocess per message with `--output-format stream-json`. Each message is a fresh, stateless invocation. Workflow agents (those with upstream connections) don't get the `invoke_agent` tool.
 
 **Ollama** (`manages_own_tools=False`): HTTP client to Ollama's `/v1/chat/completions` endpoint. Implements an agentic tool loop (up to 10 iterations) with tool execution delegated to the backend's tool executor.
+
+#### Per-card tool gating
+
+Each `AgentSession` and each `DialogueParticipant` carries a `tools_enabled` flag (default `true`, except newly-added dialogue workers which default to `false`). When false:
+
+- **Ollama** — `send_message` omits the `tools` field from the request body; the model sees no tools and cannot emit tool calls.
+- **Claude Code** — the subprocess is launched without `--mcp-config`, so not even the built-in `invoke_agent` server is available for that turn.
+
+The flag is persisted on `AgentSession` and editable via `PATCH /api/sessions/{id}`. For dialogue participants, it is edited in the Configure dialog and applied each time the orchestrator invokes a participant (each turn spawns a fresh sub-agent session inheriting the flag).
+
+### MCP HTTP + OAuth flow
+
+```
+┌──────────┐  POST /mcp {initialize}   ┌────────────────┐
+│ Http     │ ──────────────────────▶   │ MCP server     │
+│ Client   │ ◀── 401 + WWW-Authenticate│                │
+└──────────┘                           └────────────────┘
+     │
+     │  resource_metadata URL
+     ▼
+┌────────────────────────────────────────────┐
+│ .well-known/oauth-protected-resource       │  → authorization_servers[0]
+│ .well-known/oauth-authorization-server     │  → auth_endpoint, token_endpoint,
+│                                            │    registration_endpoint
+└────────────────────────────────────────────┘
+     │
+     ▼
+┌────────────────────────────────────────────┐
+│ RFC 7591 dynamic client registration       │  (skipped when oauth_client_id is set)
+└────────────────────────────────────────────┘
+     │
+     ▼
+┌────────────────────────────────────────────┐
+│ Open browser → authorization_endpoint      │
+│   ?client_id=…&code_challenge=…            │
+│   &redirect_uri=http://localhost:{port}/…  │
+└────────────────────────────────────────────┘
+     │  user signs in
+     ▼
+┌────────────────────────────────────────────┐
+│ Local asyncio listener on callback_port    │  → captures code + state
+└────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────┐  POST /token {code, verifier}   ┌────────────────┐
+│ Http     │ ──────────────────────────────▶ │ Auth server    │
+│ Client   │ ◀── {access_token, refresh_…}   │                │
+└──────────┘                                 └────────────────┘
+     │  persist to $XDG_DATA_HOME/agentcanvas/mcp_servers/{id}.json
+     ▼
+┌──────────┐  POST /mcp {initialize}  + Bearer
+│ Http     │ ──────────────────────▶   (retry)
+│ Client   │ ◀── 200 OK → tools/list
+└──────────┘
+```
+
+Subsequent requests check `expires_at` and silently `refresh_token` 30s before expiry. Refresh failures invalidate stored tokens; the next tool-discovery call re-enters the interactive flow.
 
 ### Streaming Events
 

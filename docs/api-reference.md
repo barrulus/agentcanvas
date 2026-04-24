@@ -24,7 +24,7 @@ Base URL: `http://localhost:8325` (configurable via `AGENTCANVAS_PORT`)
 | GET | `/api/sessions?dashboard_id=` | List active sessions |
 | GET | `/api/sessions/history?search=` | List closed sessions |
 | GET | `/api/sessions/{id}` | Get session details |
-| PATCH | `/api/sessions/{id}` | Update session (name, system_prompt) |
+| PATCH | `/api/sessions/{id}` | Update session (`name`, `system_prompt`, `tools_enabled`) |
 | DELETE | `/api/sessions/{id}` | Hard delete session |
 | POST | `/api/sessions/{id}/stop` | Stop a running agent |
 | POST | `/api/sessions/{id}/close` | Soft-close (preserves in history) |
@@ -41,7 +41,8 @@ POST /api/sessions
   "system_prompt": "You are...",    // optional
   "dashboard_id": "default",       // optional
   "cwd": "/path/to/project",       // optional, enables git worktree
-  "mode_id": "agent"               // optional
+  "mode_id": "agent",              // optional
+  "tools_enabled": true             // optional, default true; when false, MCP tools are hidden from this session
 }
 ```
 
@@ -51,9 +52,12 @@ POST /api/sessions
 PATCH /api/sessions/{id}
 {
   "name": "New Name",
-  "system_prompt": "Updated prompt"
+  "system_prompt": "Updated prompt",
+  "tools_enabled": false
 }
 ```
+
+`tools_enabled=false` takes effect on the next message: Ollama stops sending the `tools` field to the upstream API, and Claude Code launches without `--mcp-config` (so even its own `invoke_agent` server is hidden).
 
 ## Branching
 
@@ -199,7 +203,7 @@ Returns the sub-agent's response, cost, and session ID.
 | DELETE | `/api/mcp-servers/{id}` | Delete server |
 | GET | `/api/mcp-servers/{id}/tools` | Discover available tools |
 
-### Add MCP Server
+### Add MCP Server (stdio)
 
 ```json
 POST /api/mcp-servers
@@ -212,6 +216,42 @@ POST /api/mcp-servers
   "enabled": true
 }
 ```
+
+### Add MCP Server (http + OAuth 2.1)
+
+For remote HTTP MCP servers, `transport: "http"` is supported with the Streamable HTTP profile (spec 2025-03-26) and full OAuth 2.1 + PKCE. The server URL, optional static headers, and optional OAuth parameters can all be supplied at creation time:
+
+```json
+POST /api/mcp-servers
+{
+  "name": "affectli-rag",
+  "transport": "http",
+  "url": "https://dev.affectli.ai/rag/mcp",
+  "headers": {},
+  "callback_port": 8765,
+  "oauth_client_id": "mi-c3.affectli.com",
+  "oauth_scopes": ["openid", "offline_access", "profile", "email"],
+  "enabled": true
+}
+```
+
+- `callback_port` — where the local OAuth redirect listener runs; defaults to `8765`. Must match whatever redirect URI the authorization server has registered (for pre-registered clients) or is willing to accept (for dynamically-registered clients).
+- `oauth_client_id` — if omitted, the backend performs RFC 7591 dynamic client registration against the advertised `registration_endpoint`. If your authorization server doesn't advertise one, you **must** set `oauth_client_id`.
+- `oauth_scopes` — explicit override. Omit to use scopes advertised by the authorization server. For Keycloak, include `offline_access` so refresh tokens are issued.
+
+### Discover Tools
+
+```
+GET /api/mcp-servers/{id}/tools
+```
+
+Returns the list of discovered tools. For HTTP servers, this endpoint:
+
+1. Opens a connection and sends the MCP `initialize` handshake.
+2. On `401 Unauthorized`, triggers the OAuth flow: reads `WWW-Authenticate: Bearer resource_metadata=...`, fetches `.well-known/oauth-protected-resource` and `.well-known/oauth-authorization-server`, dynamically registers (or reuses `oauth_client_id`), opens the user's browser to the authorization endpoint with PKCE, listens on `http://localhost:{callback_port}/callback` for the redirect, exchanges the code for tokens, persists them on the server config, and retries.
+3. Returns `{"tools": [...]}` on success or `{"error": "<message>"}` with HTTP 502 on failure (auth denied, network error, incompatible server, etc.).
+
+Tokens are refreshed transparently on subsequent calls when `expires_at` is within 30 seconds. Refresh failures invalidate the stored tokens and the next discovery will re-trigger the interactive flow.
 
 ## Dialogue Cards
 
@@ -239,6 +279,7 @@ POST /api/dialogue-cards
       "provider_id": "claude-code",
       "model": "sonnet",
       "system_prompt": "You chair a panel of language specialists…",
+      "tools_enabled": true,
       "context_mode": "full"
     },
     {
@@ -248,6 +289,7 @@ POST /api/dialogue-cards
       "provider_id": "ollama",
       "model": "qwen3:4b",
       "system_prompt": "You are a senior Python engineer.",
+      "tools_enabled": false,
       "context_mode": "question_only"
     }
   ],

@@ -55,6 +55,10 @@ Dialogue cards encapsulate a **multi-turn orchestrator-driven exchange** between
 
 **Creating a dialogue card:** Click "+ Dialogue Card" in the toolbar. An empty card appears. Click **Configure** to add participants and settings, then **Run** (or route input from an upstream card).
 
+**Configure dialog behaviour:**
+- The dialog does **not** close when you click outside it. Use the × button, the **Cancel** button, or **Escape**. If you have unsaved changes, any of these three will prompt to confirm before discarding.
+- Participants are collapsible: click the participant header (role badge + name) to toggle. Collapsed participants show a one-line summary: `role · name · provider · model · ctx:<mode> · [no-tools]`. New participants open expanded; existing ones open collapsed so long configurations stay manageable.
+
 **Participants** have:
 
 | Field | Description |
@@ -64,6 +68,7 @@ Dialogue cards encapsulate a **multi-turn orchestrator-driven exchange** between
 | `description` | Short expertise summary — auto-injected into the orchestrator's system prompt as a roster |
 | `provider_id` + `model` | Independent per participant. Mix Claude + Ollama + others freely. |
 | `system_prompt` | Persona / behaviour. Workers get theirs verbatim; the orchestrator's is extended with the roster + routing instructions. |
+| `tools_enabled` | Whether this participant is exposed to MCP tools. New workers default **off** (they reason from their persona, they don't call RAG/GitLab/etc.); new orchestrators default **on**. Toggle in the Configure dialog. |
 | `context_mode` | What they see of the transcript: `full`, `last_n:N`, or `question_only` (just the orchestrator's latest message to them, with the ask tag stripped). |
 
 **Orchestrator tags**:

@@ -14,6 +14,7 @@ The core model for an agent's state and conversation.
 | `model` | string | required | Model name (e.g., `"sonnet"`, `"qwen3:4b"`) |
 | `status` | enum | `"idle"` | `idle`, `running`, `completed`, `error`, `stopped` |
 | `system_prompt` | string? | null | Custom system instructions |
+| `tools_enabled` | bool | true | When false, MCP tools are hidden from this session (Ollama drops the `tools` field; Claude Code skips `--mcp-config`) |
 | `messages` | Message[] | [] | Conversation history |
 | `cost_usd` | float | 0.0 | Accumulated cost in USD |
 | `tokens` | dict | `{input: 0, output: 0}` | Token usage |
@@ -146,6 +147,7 @@ Orchestrator-driven multi-turn exchange between N participants, encapsulated in 
 | `provider_id` | string | required | Independent per participant |
 | `model` | string | required | Independent per participant |
 | `system_prompt` | string | `""` | Persona / behaviour |
+| `tools_enabled` | bool | true | When false, this participant sees no MCP tools. New workers default to `false`; new orchestrators default to `true` |
 | `context_mode` | enum | `"question_only"` | `full`, `last_n`, or `question_only` |
 | `context_last_n` | int | 5 | Window size when `context_mode="last_n"` |
 | `max_context_tokens` | int? | null | Soft cap on visible transcript (not yet enforced in v1) |
@@ -182,6 +184,64 @@ Metadata for a conversation branch (fork).
 | `fork_message_id` | string | required | Message where the fork occurred |
 | `created_at` | float | now | Unix timestamp |
 | `label` | string? | null | Optional branch name |
+
+## MCPServerConfig
+
+Defined in `backend/mcp/models.py`. One file per server under `$XDG_DATA_HOME/agentcanvas/mcp_servers/{id}.json`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | uuid | Server identifier |
+| `name` | string | required | Display name; also used to namespace discovered tools (`{name}__{tool}`) |
+| `transport` | enum | `"stdio"` | `stdio` (subprocess, JSON-RPC on stdin/stdout) or `http` (Streamable HTTP, spec 2025-03-26) |
+| `command` | string? | null | stdio only — executable (e.g. `"npx"`) |
+| `args` | string[] | [] | stdio only — argv |
+| `url` | string? | null | http only — e.g. `https://dev.affectli.ai/rag/mcp` |
+| `headers` | dict[str, str] | {} | http only — static headers merged into every request (e.g. a fixed Bearer token) |
+| `callback_port` | int? | null | http only — port used for the OAuth redirect URI `http://localhost:{port}/callback`. Defaults to 8765 |
+| `oauth_client_id` | string? | null | http only — pre-registered OAuth client_id. When set, skips RFC 7591 dynamic registration |
+| `oauth_scopes` | string[] | [] | http only — explicit scope override. Include `offline_access` for Keycloak refresh tokens |
+| `oauth_client` | OAuthClient? | null | Populated after discovery/registration; cached for refresh |
+| `oauth_tokens` | OAuthTokens? | null | Populated after a successful flow; refreshed transparently when expired |
+| `env` | dict[str, str] | {} | Extra environment variables for stdio subprocess |
+| `enabled` | bool | true | When unchecked, the server is ignored by tool discovery and every agent's tool list |
+
+### OAuthClient
+
+Cached authorization-server metadata and client credentials for a single MCP server.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `authorization_endpoint` | string | required | From `.well-known/oauth-authorization-server` |
+| `token_endpoint` | string | required | From `.well-known/oauth-authorization-server` |
+| `registration_endpoint` | string? | null | RFC 7591 endpoint if advertised |
+| `client_id` | string | required | User-supplied or dynamically registered |
+| `client_secret` | string? | null | Populated if dynamic registration returned one; absent for public PKCE clients |
+| `scopes_supported` | string[] | [] | As advertised by the issuer |
+| `resource` | string? | null | RFC 8707 resource indicator (from RFC 9728 protected-resource metadata) |
+
+### OAuthTokens
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `access_token` | string | required | Sent as `Authorization: {token_type} {access_token}` |
+| `refresh_token` | string? | null | Used to auto-refresh before `expires_at` |
+| `token_type` | string | `"Bearer"` | |
+| `expires_at` | float? | null | Unix timestamp. Client refreshes 30s before expiry |
+| `scope` | string? | null | Space-separated scopes actually granted |
+
+### ToolSchema
+
+Discovered tool metadata cached per server (not persisted — rebuilt on each tool-discovery run).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | Raw tool name from the MCP server |
+| `qualified_name` | string | required | `{server_name}__{name}` — used in permissions and routing |
+| `description` | string | `""` | |
+| `input_schema` | dict | {} | JSON Schema |
+| `server_id` | string | `""` | Owning server |
+| `server_name` | string | `""` | Owning server name (sanitized) |
 
 ## DashboardLayout
 

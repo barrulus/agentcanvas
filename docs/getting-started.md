@@ -120,13 +120,43 @@ With two or more cards selected, dragging any one of them moves the whole select
 
 1. Click the **gear icon** to open Settings
 2. Go to MCP Servers tab
-3. Click "Add Server" and configure:
+3. Click "+ Add Server" and pick a transport.
+
+### stdio (local subprocess)
+
    - **Name:** Display name
-   - **Command:** e.g., `node`, `python`
-   - **Args:** e.g., `["path/to/server.js"]`
-   - **Env:** Optional environment variables
-4. Click "Test Connection" to verify
-5. Set per-tool permissions (always_allow / ask / deny)
+   - **Transport:** `stdio`
+   - **Command:** e.g., `node`, `python`, `npx`
+   - **Args:** comma-separated, e.g., `-y, @modelcontextprotocol/server-filesystem, /tmp`
+   - **Env:** Optional `KEY=VALUE` lines
+
+### http (remote, with OAuth 2.1)
+
+For remote MCP servers (e.g. hosted RAG services). Supports OAuth 2.1 with PKCE, both dynamic client registration and pre-registered clients.
+
+   - **Name:** Display name
+   - **Transport:** `http`
+   - **URL:** e.g. `https://dev.affectli.ai/rag/mcp`
+   - **OAuth callback port:** Port for the local redirect listener. Defaults to `8765`. Must match whatever redirect URI the authorization server accepts.
+   - **OAuth client_id:** Optional. Set this for servers with a pre-registered client (e.g. Keycloak). Leave blank to use RFC 7591 dynamic registration.
+   - **OAuth scopes:** Space-separated. For Keycloak, include `offline_access` so refresh tokens are issued (otherwise you re-auth when the access token expires).
+   - **Static headers:** Optional `Header: value` lines for servers that use static bearer tokens instead of OAuth.
+
+**Example — adding affectli-rag:**
+
+| Field | Value |
+|---|---|
+| Name | `affectli-rag` |
+| Transport | `http` |
+| URL | `https://dev.affectli.ai/rag/mcp` |
+| OAuth client_id | `mi-c3.affectli.com` |
+| OAuth scopes | `openid offline_access profile email` |
+
+4. Click **Test Connection**. For HTTP servers, the first click opens your browser to the authorization server's login page. After you authenticate, tokens are stored on disk and refreshed transparently. Subsequent connections use the cached tokens.
+5. Set per-tool permissions (always_allow / ask / deny) once discovery succeeds.
+6. Use **Edit** to change any field (including OAuth settings) and re-run Test Connection to re-discover tools. Use **Delete** to remove the server (confirms first).
+
+The Test Connection button shows a `Testing…` state during OAuth — this can take 30s+ while you interact with the browser. Errors (invalid scope, unreachable URL, user cancelled) surface inline under the server entry.
 
 ## Agent Modes
 

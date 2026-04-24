@@ -21,4 +21,6 @@ AgentCanvas is a provider-agnostic AI agent orchestrator with a spatial canvas i
 | Providers | Claude Code (CLI subprocess), Ollama (HTTP API, base URL configurable) |
 | API keys | Anthropic / OpenAI, set in Settings → Providers (stored in `settings.json`) |
 | Card types | Agent, Input (chat/webhook/file), View, Gate (resolve/synthesize), Dialogue (orchestrator + workers) |
+| MCP transports | stdio (subprocess) and HTTP (Streamable HTTP, MCP spec 2025-03-26) with OAuth 2.1 + PKCE |
+| Per-card tool gating | `tools_enabled` on every agent session and dialogue participant (dialogue workers default off) |
 | Multi-select | Shift+drag marquee, Ctrl/Cmd+click toggle, Delete removes all selected |
