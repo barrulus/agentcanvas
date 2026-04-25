@@ -73,6 +73,7 @@ Dialogue cards encapsulate a **multi-turn orchestrator-driven exchange** between
 
 **Orchestrator tags**:
 - `{{ask:Name}}` — route the next turn to worker `Name`. The orchestrator's reply *is* the prompt that worker sees.
+- `{{ask:A,B,C}}` — **parallel fan-out**: every named worker answers in parallel against the same orchestrator reply, all responses are appended to the transcript in input order, and the orchestrator gets the next turn to synthesise. Unknown names are skipped with a warning. Each worker counts as one turn against `max_turns`.
 - `{{done}}` — end the loop; the orchestrator's current reply becomes the final output.
 - A reply with no tag also ends the loop.
 
@@ -81,14 +82,70 @@ Dialogue cards encapsulate a **multi-turn orchestrator-driven exchange** between
 **Output modes**:
 - `last_message`: the final orchestrator reply with any tags stripped (default).
 - `full_transcript`: the whole labelled exchange.
+- `synthesized_summary`: after the loop ends, the orchestrator runs one extra pass over the full transcript with instructions to produce a single self-contained answer (no routing tags). The transcript itself is unchanged; only the `final_output` reflects the synthesis. Adds one orchestrator-cost call on top of the loop.
 
-**Patterns this enables**:
+**Worked patterns**:
 
-| Pattern | Shape |
-|---------|-------|
-| **Two-agent debate** | Two orchestrators… or one orchestrator + one worker set to `context_mode: full`. The orchestrator asks, the worker argues, orchestrator synthesises. |
-| **Council of specialists** | One orchestrator + N workers with distinct system prompts (e.g. Python / JS / Rust experts). Orchestrator routes queries via `{{ask:Python}}` and reconciles the answers. |
-| **Asymmetric context** | Orchestrator on a big-context model (e.g. Claude) with `context_mode: full` holding the plan; small-context workers (e.g. `qwen3:4b`) with `context_mode: question_only` answering one bounded question at a time. Cost scales `orchestrator × turns + Σ(worker × times_asked)`. |
+#### Two-agent debate
+
+Set up an orchestrator that prompts a single "opponent" worker, ingests the rebuttal, and pushes back. Loop terminates when the orchestrator concedes or sees consensus.
+
+```
+Participants:
+  - Moderator       (orchestrator, claude-sonnet, context_mode: full)
+  - Devil's advocate (worker, claude-sonnet, context_mode: full,
+                      system_prompt: "Argue against the moderator's most recent
+                      claim. Be specific. Cite concrete failure modes.")
+
+initial_prompt:    "Should we ship feature X this week? Argue both sides."
+max_turns:         8
+termination_rule:  contains:CONVERGED
+output_mode:       synthesized_summary
+```
+
+Moderator emits `{{ask:Devil's advocate}}` each turn with its current position; the worker replies; the moderator either pushes back again or writes "CONVERGED — ..." to terminate. The synthesised summary collapses the back-and-forth into the final recommendation.
+
+#### Council of specialists (parallel fan-out)
+
+One orchestrator routes a single question to N specialists in parallel, then synthesises.
+
+```
+Participants:
+  - Lead          (orchestrator, claude-sonnet, context_mode: full)
+  - PythonExpert  (worker, claude-haiku,  system_prompt: "Senior Python eng. Critique only Python concerns.")
+  - JSExpert      (worker, claude-haiku,  system_prompt: "Senior TypeScript eng. Critique only JS/TS concerns.")
+  - RustExpert    (worker, claude-haiku,  system_prompt: "Senior Rust eng. Critique only Rust concerns.")
+
+initial_prompt:  "Review this RFC and flag concerns from each language perspective: <RFC>"
+max_turns:       6
+output_mode:     synthesized_summary
+```
+
+The Lead's first reply is something like:
+
+> Reviewers, please flag your top concerns: {{ask:PythonExpert,JSExpert,RustExpert}}
+
+All three workers run concurrently against that single question. Their answers are appended to the transcript in input order. Lead's next turn synthesises — and either emits `{{done}}` or fans out a follow-up.
+
+#### Asymmetric context (big orchestrator + small local workers)
+
+Hold the plan on a long-context model and use small local workers for cheap, bounded questions.
+
+```
+Participants:
+  - Architect   (orchestrator, claude-opus, context_mode: full,
+                 system_prompt: "You hold the design. Workers see only your latest message.")
+  - LocalCoder  (worker, ollama / qwen3:4b, context_mode: question_only,
+                 tools_enabled: false,
+                 system_prompt: "Answer the single coding question in the user message.
+                 Output code only.")
+
+initial_prompt:   "<full design doc>"
+max_turns:        20
+output_mode:      last_message
+```
+
+The Architect asks `{{ask:LocalCoder}}` with one bounded prompt at a time ("Write the parser for X."). LocalCoder sees only that prompt — not the design doc — so it stays inside its context window. Cost scales as `architect × turns + Σ(coder × asks)`, not quadratically. Mix providers freely (Claude + Ollama + others) since each participant has its own `provider_id` and `model`.
 
 **Reset / re-run**: the card clears its transcript whenever an upstream card re-routes input, or you can click **Reset** manually.
 

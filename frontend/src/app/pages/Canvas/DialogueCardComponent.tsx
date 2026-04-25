@@ -352,7 +352,7 @@ export function DialogueCardComponent({ card }: { card: CardPosition }) {
 }
 
 function ConfigureDialog({ card, onClose, onSave }: {
-  card: { name: string; participants: DialogueParticipant[]; max_turns: number; termination_rule: string | null; initial_prompt: string; output_mode: 'last_message' | 'full_transcript' }
+  card: { name: string; participants: DialogueParticipant[]; max_turns: number; termination_rule: string | null; initial_prompt: string; output_mode: 'last_message' | 'full_transcript' | 'synthesized_summary' }
   onClose: () => void
   onSave: (updates: any) => void
 }) {
@@ -361,7 +361,7 @@ function ConfigureDialog({ card, onClose, onSave }: {
   const [maxTurns, setMaxTurns] = useState(card.max_turns || 20)
   const [termination, setTermination] = useState(card.termination_rule || '')
   const [initialPrompt, setInitialPrompt] = useState(card.initial_prompt || '')
-  const [outputMode, setOutputMode] = useState<'last_message' | 'full_transcript'>(card.output_mode || 'last_message')
+  const [outputMode, setOutputMode] = useState<'last_message' | 'full_transcript' | 'synthesized_summary'>(card.output_mode || 'last_message')
   const [modelsByProvider, setModelsByProvider] = useState<Record<string, Array<{ id: string; name: string }>>>({})
   // Collapsed state per participant index — start expanded when freshly added, collapsed otherwise.
   const [collapsedParts, setCollapsedParts] = useState<Set<number>>(() => new Set(card.participants.map((_, i) => i)))
@@ -511,6 +511,7 @@ function ConfigureDialog({ card, onClose, onSave }: {
             >
               <option value="last_message">Last message</option>
               <option value="full_transcript">Full transcript</option>
+              <option value="synthesized_summary">Synthesised summary</option>
             </select>
           </div>
         </div>

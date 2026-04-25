@@ -27,7 +27,7 @@ export interface DialogueCard {
   max_turns: number
   termination_rule: string | null
   initial_prompt: string
-  output_mode: 'last_message' | 'full_transcript'
+  output_mode: 'last_message' | 'full_transcript' | 'synthesized_summary'
   status: 'idle' | 'running' | 'completed' | 'error'
   transcript: DialogueTurn[]
   final_output: string
@@ -59,7 +59,7 @@ export const createDialogueCard = createAsyncThunk(
     max_turns?: number
     termination_rule?: string | null
     initial_prompt?: string
-    output_mode?: 'last_message' | 'full_transcript'
+    output_mode?: 'last_message' | 'full_transcript' | 'synthesized_summary'
     dashboard_id?: string
   }) => {
     const res = await fetch('/api/dialogue-cards', {

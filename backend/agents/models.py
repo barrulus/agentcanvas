@@ -135,7 +135,7 @@ class DialogueCard(BaseModel):
     max_turns: int = 20
     termination_rule: Optional[str] = None  # e.g. "contains:CONSENSUS", "regex:DONE"
     initial_prompt: str = ""
-    output_mode: Literal["last_message", "full_transcript"] = "last_message"
+    output_mode: Literal["last_message", "full_transcript", "synthesized_summary"] = "last_message"
     status: Literal["idle", "running", "completed", "error"] = "idle"
     transcript: list[DialogueTurn] = Field(default_factory=list)
     final_output: str = ""
