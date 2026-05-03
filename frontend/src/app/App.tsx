@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
+import '@xyflow/react/dist/style.css'
+import './pages/Canvas/xyflow/xyflow.css'
 import { Canvas } from './pages/Canvas/Canvas'
 import { Toolbar } from './pages/Canvas/Toolbar'
 import { Settings } from './pages/Settings/Settings'

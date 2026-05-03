@@ -1,0 +1,73 @@
+/* AgentCanvas-specific xyflow overrides */
+
+/* Kill the default white selection box-shadow xyflow puts on every node */
+.react-flow__node {
+  box-shadow: none !important;
+}
+.react-flow__node.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Dark-theme the bottom-left Controls panel */
+.react-flow__controls {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.react-flow__controls-button {
+  background: #1a1a2e;
+  color: #ccc;
+  border-bottom: 1px solid #2a2a3e;
+  width: 28px;
+  height: 28px;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow__controls-button:hover {
+  background: #2a2a3e;
+  color: #4fc3f7;
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+/* MiniMap dark theme */
+.react-flow__minimap {
+  background: #0f0f17;
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+
+/* Edge selection: don't add a white outline when an edge is selected */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 4;
+}
+
+/* Allow group-card headers to actually receive clicks even when xyflow wraps them */
+.react-flow__node-groupCard {
+  pointer-events: none !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+.react-flow__node-groupCard > * {
+  pointer-events: auto;
+}
+
+/* Strip xyflow's default white-box styling from all our custom card types */
+.react-flow__node-agentCard,
+.react-flow__node-viewCard,
+.react-flow__node-inputCard,
+.react-flow__node-gateCard,
+.react-flow__node-dialogueCard {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+}

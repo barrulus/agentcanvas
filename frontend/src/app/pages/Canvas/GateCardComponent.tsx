@@ -19,7 +19,7 @@ const STATUS_COLORS: Record<string, string> = {
   error: '#ef5350',
 }
 
-export function GateCardComponent({ card }: { card: CardPosition }) {
+export function GateCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
   const dispatch = useDispatch<AppDispatch>()
   const gateCard = useSelector((s: RootState) => s.gateCards.cards[card.session_id])
   const connections = useSelector((s: RootState) => s.canvas.connections)
@@ -131,15 +131,13 @@ export function GateCardComponent({ card }: { card: CardPosition }) {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-        onMouseDown={handleDragStart}
+        onMouseDown={chromeless ? undefined : handleDragStart}
         onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
         style={{
-          position: 'absolute',
-          left: card.x,
-          top: card.y,
+          position: chromeless ? 'relative' : 'absolute',
+          ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
           width: 200,
           height: 44,
-          zIndex: card.zOrder,
           background: '#1a1a2e',
           border: isSelected ? '2px solid #66bb6a' : '1px solid #6b400044',
           borderRadius: 10,
@@ -168,12 +166,10 @@ export function GateCardComponent({ card }: { card: CardPosition }) {
       exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       style={{
-        position: 'absolute',
-        left: card.x,
-        top: card.y,
+        position: chromeless ? 'relative' : 'absolute',
+        ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
         width: card.width,
         height: card.height,
-        zIndex: card.zOrder,
         background: '#1a1a2e',
         border: isSelected ? '2px solid #66bb6a' : '1px solid #6b400033',
         borderRadius: 12,
@@ -185,7 +181,7 @@ export function GateCardComponent({ card }: { card: CardPosition }) {
     >
       {/* Header */}
       <div
-        onMouseDown={handleDragStart}
+        onMouseDown={chromeless ? undefined : handleDragStart}
         onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
         style={{
           padding: '8px 12px',

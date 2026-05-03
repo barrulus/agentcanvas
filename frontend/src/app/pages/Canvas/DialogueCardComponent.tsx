@@ -23,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ACCENT = '#ba68c8'
 
-export function DialogueCardComponent({ card }: { card: CardPosition }) {
+export function DialogueCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
   const dispatch = useDispatch<AppDispatch>()
   const dialogueCard = useSelector((s: RootState) => s.dialogueCards.cards[card.session_id])
   const providers = useSelector((s: RootState) => s.agents.providers)
@@ -135,11 +135,12 @@ export function DialogueCardComponent({ card }: { card: CardPosition }) {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-        onMouseDown={handleDragStart}
+        onMouseDown={chromeless ? undefined : handleDragStart}
         onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
         style={{
-          position: 'absolute', left: card.x, top: card.y, width: 200, height: 44,
-          zIndex: card.zOrder, background: '#1a1a2e',
+          position: chromeless ? 'relative' : 'absolute',
+          ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
+          width: 200, height: 44, background: '#1a1a2e',
           border: isSelected ? '2px solid #66bb6a' : `1px solid ${ACCENT}44`,
           borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 8,
           cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
@@ -162,8 +163,9 @@ export function DialogueCardComponent({ card }: { card: CardPosition }) {
       exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       style={{
-        position: 'absolute', left: card.x, top: card.y, width: card.width, height: card.height,
-        zIndex: card.zOrder, background: '#1a1a2e',
+        position: chromeless ? 'relative' : 'absolute',
+        ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
+        width: card.width, height: card.height, background: '#1a1a2e',
         border: isSelected ? '2px solid #66bb6a' : `1px solid ${ACCENT}33`,
         borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px ${ACCENT}22`,
@@ -171,7 +173,7 @@ export function DialogueCardComponent({ card }: { card: CardPosition }) {
     >
       {/* Header */}
       <div
-        onMouseDown={handleDragStart}
+        onMouseDown={chromeless ? undefined : handleDragStart}
         onDoubleClick={() => dispatch(toggleCardCollapsed(card.session_id))}
         style={{
           padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
