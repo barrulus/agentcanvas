@@ -21,6 +21,36 @@ from backend.sessions.store import save_session, load_all_sessions, delete_sessi
 logger = logging.getLogger(__name__)
 
 
+# Webhook-invoke registry: futures awaiting a specific view-card's next content.
+# Keyed by view_card_id → list of pending futures.
+_pending_invocations: dict[str, list[asyncio.Future[str]]] = {}
+
+
+def register_invocation(view_card_id: str) -> asyncio.Future[str]:
+    fut: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    _pending_invocations.setdefault(view_card_id, []).append(fut)
+    return fut
+
+
+def unregister_invocation(view_card_id: str, fut: asyncio.Future[str]) -> None:
+    futs = _pending_invocations.get(view_card_id)
+    if not futs:
+        return
+    if fut in futs:
+        futs.remove(fut)
+    if not futs:
+        _pending_invocations.pop(view_card_id, None)
+
+
+def _resolve_invocations(view_card_id: str, content: str) -> None:
+    futs = _pending_invocations.pop(view_card_id, None)
+    if not futs:
+        return
+    for fut in futs:
+        if not fut.done():
+            fut.set_result(content)
+
+
 def generate_session_name(content: str, max_words: int = 6, max_chars: int = 50) -> str:
     """Generate a session name from the first message content."""
     text = content.strip().split('\n')[0].strip()
@@ -261,6 +291,8 @@ async def route_to_downstream(
                 "view_card:update",
                 {"card_id": target_id, "card": view_card.model_dump()},
             )
+            # Wake any webhook callers awaiting this view card's next content
+            _resolve_invocations(target_id, routed_text)
 
     from backend.agents.models import Connection
     await asyncio.gather(*(_route_single(c) for c in outgoing))

@@ -557,6 +557,71 @@ async def input_card_webhook(card_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/dashboards/{dashboard_id}/invoke")
+async def dashboard_invoke(dashboard_id: str, request: Request):
+    """Synchronously invoke a dashboard via webhook.
+
+    Body: { input_card_id, output_card_id, content, timeout? }
+
+    Sends `content` to the input card, awaits the next content delivered to the
+    output (view) card, and returns it. Times out with 504 if no response within
+    `timeout` seconds (default 60).
+    """
+    import asyncio as _asyncio
+    import json as _json
+
+    body = await request.json()
+    input_card_id = body.get("input_card_id")
+    output_card_id = body.get("output_card_id")
+    content = body.get("content", "")
+    timeout = float(body.get("timeout", 60))
+
+    if not input_card_id or not output_card_id:
+        return JSONResponse(
+            {"error": "input_card_id and output_card_id are required"},
+            status_code=400,
+        )
+    if isinstance(content, dict | list):
+        content = _json.dumps(content)
+    if not content:
+        return JSONResponse({"error": "content is required"}, status_code=400)
+
+    in_card = input_manager.get_input_card(input_card_id)
+    if not in_card or in_card.dashboard_id != dashboard_id:
+        return JSONResponse(
+            {"error": "input_card_id not found on this dashboard"},
+            status_code=404,
+        )
+
+    from backend.sessions.store import load_view_card
+    out_card = load_view_card(output_card_id)
+    if not out_card or out_card.dashboard_id != dashboard_id:
+        return JSONResponse(
+            {"error": "output_card_id not found on this dashboard"},
+            status_code=404,
+        )
+
+    from backend.agents.agent_manager import register_invocation, unregister_invocation
+    fut = register_invocation(output_card_id)
+    try:
+        await input_manager.send_to_downstream(input_card_id, str(content))
+        await ws_manager.broadcast_dashboard(
+            "input_card:triggered",
+            {"card_id": input_card_id, "source": "invoke"},
+        )
+        result = await _asyncio.wait_for(fut, timeout=timeout)
+        return {"content": result}
+    except _asyncio.TimeoutError:
+        unregister_invocation(output_card_id, fut)
+        return JSONResponse(
+            {"error": f"Workflow did not produce output on card {output_card_id} within {timeout}s"},
+            status_code=504,
+        )
+    except _asyncio.CancelledError:
+        unregister_invocation(output_card_id, fut)
+        raise
+
+
 # --- Git Worktree ---
 
 

@@ -24,6 +24,7 @@ Base URL: `http://localhost:8325` (configurable via `AGENTCANVAS_PORT`)
 | GET | `/api/sessions?dashboard_id=` | List active sessions |
 | GET | `/api/sessions/history?search=` | List closed sessions |
 | GET | `/api/sessions/{id}` | Get session details |
+| GET | `/api/sessions/{id}/last-run` | Aggregated summary of the most recent run on this session (prompt, response, tool calls, tokens, error). Used by the canvas inspector panel. |
 | PATCH | `/api/sessions/{id}` | Update session (`name`, `system_prompt`, `tools_enabled`) |
 | DELETE | `/api/sessions/{id}` | Hard delete session |
 | POST | `/api/sessions/{id}/stop` | Stop a running agent |
@@ -168,8 +169,34 @@ POST /api/gate-cards
 | DELETE | `/api/dashboards/{id}` | Delete dashboard |
 | GET | `/api/dashboards/{id}/layout` | Get layout (cards, connections, groups, constraints) |
 | PUT | `/api/dashboards/{id}/layout` | Save layout (cards, connections, groups, constraints) |
+| POST | `/api/dashboards/{id}/invoke` | Synchronously invoke a workflow via webhook (see below) |
 
 The layout payload accepts an optional top-level `constraints` field — a free-text string injected into all routed messages. See [Workflow-level Shared Constraints](workflows.md#workflow-level-shared-constraints).
+
+### Synchronous workflow invocation
+
+`POST /api/dashboards/{dashboard_id}/invoke` makes any AgentCanvas workflow callable as a single HTTP request. The caller specifies an input card to feed and an output (view) card to read from; the request blocks until the workflow produces content on that view card or times out.
+
+```json
+POST /api/dashboards/{dashboard_id}/invoke
+{
+  "input_card_id": "abc123…",
+  "output_card_id": "def456…",
+  "content": "summarize this article: …",
+  "timeout": 60
+}
+```
+
+Response:
+
+```json
+{ "content": "<final view card content>" }
+```
+
+- `content` may be a string or a JSON object — objects are stringified before routing.
+- `timeout` is in seconds; default 60. Returns 504 with `{"error": "..."}` if the workflow does not produce output on the named view card within that window.
+- Both cards must belong to the dashboard. The endpoint registers an in-process future and resolves it the moment routing delivers content to the named view card; concurrent invocations are independent and isolated by their distinct futures.
+- This endpoint exists to make agentcanvas callable from external orchestrators (NiFi, n8n, cron, scripts) without long-polling.
 
 ## Sub-Agent Invocation
 
