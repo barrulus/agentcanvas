@@ -112,6 +112,109 @@ async def get_session(session_id: str):
     return session.model_dump()
 
 
+@app.get("/api/sessions/{session_id}/last-run")
+async def get_session_last_run(session_id: str):
+    """Aggregate the most recent run on this session into a flat summary.
+
+    A run begins at the most recent user/system trigger message and includes
+    every assistant/tool/system message after it. If the session has no runs
+    yet, returns status=idle with empty fields.
+    """
+    session = agent_manager.get_session(session_id)
+    if not session:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    msgs = session.messages
+    # Find the start of the last run: the last user-role message
+    start_idx = next(
+        (i for i in range(len(msgs) - 1, -1, -1) if msgs[i].role == "user"),
+        None,
+    )
+    if start_idx is None:
+        return {
+            "session_id": session.id,
+            "status": session.status,
+            "started_at": None,
+            "ended_at": session.closed_at,
+            "duration_ms": None,
+            "prompt_in": None,
+            "response_out": "",
+            "error_text": None,
+            "tokens": session.tokens,
+            "cost_usd": session.cost_usd,
+            "tool_calls": [],
+        }
+
+    run_msgs = msgs[start_idx:]
+    prompt_msg = run_msgs[0]
+    started_at = prompt_msg.timestamp
+
+    # Concatenate assistant text
+    response_parts = [
+        m.content if isinstance(m.content, str) else str(m.content)
+        for m in run_msgs
+        if m.role == "assistant"
+    ]
+    response_out = "\n".join(p for p in response_parts if p)
+
+    # Surface the most recent system-role error message (agent_manager.py:548)
+    error_text = None
+    if session.status == "error":
+        for m in reversed(run_msgs):
+            if m.role == "system" and isinstance(m.content, str) and m.content.startswith("Error:"):
+                error_text = m.content
+                break
+
+    # Pair tool_call → tool_result by tool_call_id
+    tool_calls: list[dict] = []
+    pending: dict[str, dict] = {}
+    for m in run_msgs:
+        if m.role == "tool_call":
+            entry = {
+                "tool_name": m.tool_name,
+                "tool_call_id": m.tool_call_id,
+                "args": m.content,
+                "result": None,
+                "started_at": m.timestamp,
+                "ended_at": None,
+            }
+            tool_calls.append(entry)
+            if m.tool_call_id:
+                pending[m.tool_call_id] = entry
+        elif m.role == "tool_result":
+            entry = pending.pop(m.tool_call_id or "", None)
+            if entry is not None:
+                entry["result"] = m.content
+                entry["ended_at"] = m.timestamp
+            else:
+                tool_calls.append({
+                    "tool_name": m.tool_name,
+                    "tool_call_id": m.tool_call_id,
+                    "args": None,
+                    "result": m.content,
+                    "started_at": None,
+                    "ended_at": m.timestamp,
+                })
+
+    # End time: when the last message in the run arrived (or now if still running)
+    ended_at = run_msgs[-1].timestamp if session.status != "running" else None
+    duration_ms = int((ended_at - started_at) * 1000) if ended_at else None
+
+    return {
+        "session_id": session.id,
+        "status": session.status,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "duration_ms": duration_ms,
+        "prompt_in": prompt_msg.content if isinstance(prompt_msg.content, str) else str(prompt_msg.content),
+        "response_out": response_out,
+        "error_text": error_text,
+        "tokens": session.tokens,
+        "cost_usd": session.cost_usd,
+        "tool_calls": tool_calls,
+    }
+
+
 @app.patch("/api/sessions/{session_id}")
 async def update_session(session_id: str, request: Request):
     body = await request.json()

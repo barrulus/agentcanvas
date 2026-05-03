@@ -25,6 +25,7 @@ import { removeSession } from '@/shared/state/agentsSlice'
 import { getCanvasPrefs } from '@/shared/prefs'
 import { nodeTypes } from './xyflow/nodes'
 import { edgeTypes } from './xyflow/edges'
+import { NodeInspectorPanel } from './NodeInspectorPanel'
 import {
   selectNodes,
   selectEdges,
@@ -47,6 +48,8 @@ function CanvasInner() {
   const [edges, setEdges] = useState(reduxEdges)
   useEffect(() => setNodes(reduxNodes), [reduxNodes])
   useEffect(() => setEdges(reduxEdges), [reduxEdges])
+
+  const inspectedSessionId = selectedCards.length === 1 ? selectedCards[0] : null
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; connId: string } | null>(null)
   const [editingConn, setEditingConn] = useState<{
@@ -197,6 +200,14 @@ function CanvasInner() {
         <Controls />
         <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" nodeColor="#1a1a2e" />
       </ReactFlow>
+
+      {/* Node inspector — opens when a single card is selected */}
+      {inspectedSessionId && (
+        <NodeInspectorPanel
+          sessionId={inspectedSessionId}
+          onClose={() => dispatch(setSelected([]))}
+        />
+      )}
 
       {/* Edge context menu */}
       {contextMenu && (
