@@ -107,10 +107,10 @@ export function MergeCardComponent({ card, chromeless = false }: { card: CardPos
     setEditing(false)
   }
 
-  const onDelete = async () => {
-    await fetch(`/api/merge-cards/${card.session_id}`, { method: 'DELETE' })
-    dispatch(removeMergeCard(card.session_id))
+  const onDelete = () => {
+    fetch(`/api/merge-cards/${card.session_id}`, { method: 'DELETE' })
     dispatch(removeCard(card.session_id))
+    dispatch(removeMergeCard(card.session_id))
   }
 
   if (!mergeCard) return null
