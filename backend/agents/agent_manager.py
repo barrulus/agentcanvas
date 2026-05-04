@@ -419,6 +419,7 @@ async def route_to_downstream(
             # Wake any webhook callers awaiting this view card's next content
             _resolve_invocations(target_id, routed_text)
             if run_id:
+                from backend.agents.run_manager import run_manager
                 run_manager.record_card_end(target_id, status="completed")
 
     from backend.agents.models import Connection
