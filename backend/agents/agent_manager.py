@@ -941,7 +941,8 @@ class AgentManager:
         If a placeholder fails to resolve (unknown node, missing field, non-JSON output),
         the placeholder is left intact in the rendered string.
         """
-        nodes = nodes or {}
+        if nodes is None:
+            nodes = {}
         own_parsed = AgentManager._extract_json(text)
 
         def _lookup_path(parsed: object, path_parts: list[str]) -> str | None:
@@ -981,10 +982,10 @@ class AgentManager:
                     return match.group(0)
                 if not path_parts:
                     return node_text
-                parsed = AgentManager._extract_json(node_text)
-                if not isinstance(parsed, dict):
+                node_parsed = AgentManager._extract_json(node_text)
+                if not isinstance(node_parsed, dict):
                     return match.group(0)
-                resolved = _lookup_path(parsed, path_parts)
+                resolved = _lookup_path(node_parsed, path_parts)
                 return resolved if resolved is not None else match.group(0)
 
             return match.group(0)
