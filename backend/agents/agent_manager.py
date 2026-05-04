@@ -925,31 +925,71 @@ class AgentManager:
             return None
 
     @staticmethod
-    def _apply_transform(transform: str, text: str) -> str:
+    def _apply_transform(
+        transform: str,
+        text: str,
+        nodes: dict[str, str] | None = None,
+    ) -> str:
         """Apply a transform template to output text.
 
         Supported placeholders:
-        - {{output}} — replaced with full output text
-        - {{output.field}} — replaced with a field from JSON output (dot-notation)
-        """
-        parsed = AgentManager._extract_json(text)
+        - {{output}} — full text of the immediate upstream
+        - {{output.field}} — JSON dot-path into the immediate upstream's parsed output
+        - {{nodes.<Name>.output}} — full text of a direct-upstream node, looked up by case-insensitive name
+        - {{nodes.<Name>.output.field}} — JSON dot-path into that node's parsed output
 
-        def replace_placeholder(match: re.Match) -> str:
-            path = match.group(1)
-            if path == "output":
+        If a placeholder fails to resolve (unknown node, missing field, non-JSON output),
+        the placeholder is left intact in the rendered string.
+        """
+        nodes = nodes or {}
+        own_parsed = AgentManager._extract_json(text)
+
+        def _lookup_path(parsed: object, path_parts: list[str]) -> str | None:
+            val: object = parsed
+            for key in path_parts:
+                if isinstance(val, dict) and key in val:
+                    val = val[key]
+                else:
+                    return None
+            return val if isinstance(val, str) else json.dumps(val)
+
+        def replace(match: re.Match) -> str:
+            expr = match.group(1).strip()
+
+            # {{output}} or {{output.field...}}
+            if expr == "output":
                 return text
-            if path.startswith("output.") and parsed is not None and isinstance(parsed, dict):
-                keys = path[7:].split(".")
-                val = parsed
-                for key in keys:
-                    if isinstance(val, dict) and key in val:
-                        val = val[key]
-                    else:
-                        return match.group(0)  # leave placeholder intact
-                return json.dumps(val) if not isinstance(val, str) else val
+            if expr.startswith("output."):
+                if not isinstance(own_parsed, dict):
+                    return match.group(0)
+                resolved = _lookup_path(own_parsed, expr[len("output."):].split("."))
+                return resolved if resolved is not None else match.group(0)
+
+            # {{nodes.<Name>}} | {{nodes.<Name>.output}} | {{nodes.<Name>.output.field...}}
+            if expr.startswith("nodes."):
+                rest = expr[len("nodes."):]
+                # Split off the trailing ".output[.field...]" segment, keeping the name intact.
+                if ".output" in rest:
+                    name, _, tail = rest.partition(".output")
+                else:
+                    name, tail = rest, ""
+                node_text = nodes.get(name.strip().lower())
+                if node_text is None:
+                    return match.group(0)
+                if tail in ("", ".output"):
+                    return node_text
+                if tail.startswith("."):
+                    parsed = AgentManager._extract_json(node_text)
+                    if not isinstance(parsed, dict):
+                        return match.group(0)
+                    resolved = _lookup_path(parsed, tail.lstrip(".").split("."))
+                    return resolved if resolved is not None else match.group(0)
+                return match.group(0)
+
             return match.group(0)
 
-        return re.sub(r"\{\{([\w.]+)\}\}", replace_placeholder, transform)
+        # Allow names with spaces and most punctuation, but not braces.
+        return re.sub(r"\{\{([^{}]+)\}\}", replace, transform)
 
     async def _route_output(self, session_id: str) -> None:
         """Route a completed agent's output to downstream connected cards."""
