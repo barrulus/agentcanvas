@@ -3,6 +3,7 @@ import { updateStatus, addMessage, streamStart, streamDelta, streamEnd, updateCo
 import { placeCard, addConnection, setConnectionBlocked, clearConnectionBlocked } from '../state/canvasSlice'
 import { setViewCard } from '../state/viewCardsSlice'
 import { setGateCard } from '../state/gateCardsSlice'
+import { setMergeCard } from '../state/mergeCardsSlice'
 import { setDialogueCard } from '../state/dialogueCardsSlice'
 
 class WebSocketManager {
@@ -100,6 +101,12 @@ class WebSocketManager {
       case 'gate_card:update':
         if (data.card) {
           store.dispatch(setGateCard(data.card))
+        }
+        break
+
+      case 'merge_card:update':
+        if (data.card) {
+          store.dispatch(setMergeCard(data.card))
         }
         break
 

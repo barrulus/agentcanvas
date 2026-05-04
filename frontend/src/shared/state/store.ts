@@ -8,6 +8,7 @@ import { viewCardsReducer } from './viewCardsSlice'
 import { commandPolicyReducer } from './commandPolicySlice'
 import { inputCardsReducer } from './inputCardsSlice'
 import { gateCardsReducer } from './gateCardsSlice'
+import { mergeCardsReducer } from './mergeCardsSlice'
 import { dialogueCardsReducer } from './dialogueCardsSlice'
 
 export const store = configureStore({
@@ -21,6 +22,7 @@ export const store = configureStore({
     commandPolicies: commandPolicyReducer,
     inputCards: inputCardsReducer,
     gateCards: gateCardsReducer,
+    mergeCards: mergeCardsReducer,
     dialogueCards: dialogueCardsReducer,
   },
 })
