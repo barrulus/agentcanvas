@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import {
   ReactFlow,
@@ -26,6 +26,7 @@ import { getCanvasPrefs } from '@/shared/prefs'
 import { nodeTypes } from './xyflow/nodes'
 import { edgeTypes } from './xyflow/edges'
 import { NodeInspectorPanel } from './NodeInspectorPanel'
+import { UpstreamPicker, type UpstreamNode } from './upstreamPicker'
 import {
   selectNodes,
   selectEdges,
@@ -59,6 +60,27 @@ function CanvasInner() {
     transform: string
     gateRule: string
   } | null>(null)
+
+  const transformRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const sessions = useSelector((s: RootState) => s.agents.sessions)
+
+  const upstreamNodes = useMemo<UpstreamNode[]>(() => {
+    if (!editingConn) return []
+    const conn = connections.find((c) => c.id === editingConn.connId)
+    if (!conn) return []
+    const inbound = connections.filter((c) => c.to === conn.to)
+    const seen = new Set<string>()
+    const out: UpstreamNode[] = []
+    for (const c of inbound) {
+      if (seen.has(c.from)) continue
+      seen.add(c.from)
+      const name = sessions[c.from]?.name
+      if (!name) continue
+      out.push({ id: c.from, name, isImmediate: c.from === conn.from })
+    }
+    return out
+  }, [editingConn, connections, sessions])
 
   const [prefs, setPrefsState] = useState(getCanvasPrefs())
   useEffect(() => {
@@ -276,9 +298,30 @@ function CanvasInner() {
             />
             <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>
               Transform template
-              <span style={{ color: '#555', fontWeight: 400 }}>{' — {{output}} for full text, {{output.field}} for JSON fields'}</span>
+              <span style={{ color: '#555', fontWeight: 400 }}>{' — {{output}}, {{output.field}}, {{nodes.<Name>.output[.field]}}'}</span>
             </label>
+            <UpstreamPicker
+              upstream={upstreamNodes}
+              onInsert={(snippet) => {
+                const ta = transformRef.current
+                const current = editingConn.transform || ''
+                if (!ta) {
+                  setEditingConn((c) => (c ? { ...c, transform: current + snippet } : c))
+                  return
+                }
+                const start = ta.selectionStart ?? current.length
+                const end = ta.selectionEnd ?? current.length
+                const next = current.slice(0, start) + snippet + current.slice(end)
+                setEditingConn((c) => (c ? { ...c, transform: next } : c))
+                requestAnimationFrame(() => {
+                  ta.focus()
+                  const pos = start + snippet.length
+                  ta.setSelectionRange(pos, pos)
+                })
+              }}
+            />
             <textarea
+              ref={transformRef}
               value={editingConn.transform}
               onChange={(e) => setEditingConn((c) => (c ? { ...c, transform: e.target.value } : c))}
               placeholder="{{output.summary}}"
