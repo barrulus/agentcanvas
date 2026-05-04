@@ -5,6 +5,7 @@ import { AgentCard } from '../AgentCard'
 import { InputCardComponent } from '../InputCardComponent'
 import { ViewCardComponent } from '../ViewCardComponent'
 import { GateCardComponent } from '../GateCardComponent'
+import { MergeCardComponent } from '../MergeCardComponent'
 import { DialogueCardComponent } from '../DialogueCardComponent'
 import { GroupNode } from './groups'
 
@@ -43,6 +44,10 @@ export function GateNode({ id }: NodeProps) {
   return <CardWrapper id={id} render={(c) => <GateCardComponent card={c} chromeless />} />
 }
 
+export function MergeNode({ id }: NodeProps) {
+  return <CardWrapper id={id} render={(c) => <MergeCardComponent card={c} chromeless />} />
+}
+
 export function DialogueNode({ id }: NodeProps) {
   return <CardWrapper id={id} render={(c) => <DialogueCardComponent card={c} chromeless />} />
 }
@@ -52,6 +57,7 @@ export const nodeTypes = {
   viewCard: ViewNode,
   inputCard: InputNode,
   gateCard: GateNode,
+  mergeCard: MergeNode,
   dialogueCard: DialogueNode,
   groupCard: GroupNode,
 }
