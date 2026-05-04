@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, DialogueCard, GateCard, InputCard, ViewCard
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, DialogueCard, GateCard, InputCard, MergeCard, ViewCard
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,43 @@ def load_all_gate_cards() -> list[GateCard]:
 def delete_gate_card_file(card_id: str) -> None:
     path = _gate_cards_dir() / f"{card_id}.json"
     path.unlink(missing_ok=True)
+
+
+def _merge_cards_dir() -> Path:
+    d = _data_dir() / "merge_cards"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def save_merge_card(card: MergeCard) -> None:
+    path = _merge_cards_dir() / f"{card.id}.json"
+    path.write_text(card.model_dump_json(indent=2))
+
+
+def load_merge_card(card_id: str) -> MergeCard | None:
+    path = _merge_cards_dir() / f"{card_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return MergeCard.model_validate_json(path.read_text())
+    except Exception:
+        return None
+
+
+def load_all_merge_cards() -> list[MergeCard]:
+    cards: list[MergeCard] = []
+    for path in _merge_cards_dir().glob("*.json"):
+        try:
+            cards.append(MergeCard.model_validate_json(path.read_text()))
+        except Exception:
+            continue
+    return cards
+
+
+def delete_merge_card_file(card_id: str) -> None:
+    path = _merge_cards_dir() / f"{card_id}.json"
+    if path.exists():
+        path.unlink()
 
 
 # --- Dialogue Cards ---

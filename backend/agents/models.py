@@ -108,6 +108,21 @@ class GateCard(BaseModel):
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 
 
+class MergeCard(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    name: str = "Merge"
+    template: str = ""
+    timeout_seconds: int = 60  # 0 = wait forever
+    slots: dict[str, str] = Field(default_factory=dict)        # name.lower() → latest text per round
+    expected_slots: list[str] = Field(default_factory=list)    # snapshot at first input of round; cleared on emit/reset
+    status: Literal["idle", "waiting", "completed", "error"] = "idle"
+    error_text: Optional[str] = None
+    last_emitted_at: Optional[float] = None
+    last_emitted_text: Optional[str] = None
+    dashboard_id: Optional[str] = None
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+
+
 class DialogueParticipant(BaseModel):
     name: str
     description: str = ""  # Injected into orchestrator's roster
