@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
@@ -34,6 +34,20 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
   const [editName, setEditName] = useState('')
   const [editSystemPrompt, setEditSystemPrompt] = useState('')
   const [editToolsEnabled, setEditToolsEnabled] = useState(true)
+  const [editProvider, setEditProvider] = useState('')
+  const [editModel, setEditModel] = useState('')
+  const [editModels, setEditModels] = useState<Array<{ id: string; name: string }>>([])
+  const providers = useSelector((s: RootState) => s.agents.providers)
+
+  useEffect(() => {
+    if (!editing || !editProvider) return
+    let cancelled = false
+    fetch(`/api/providers/${editProvider}/models`)
+      .then(r => r.json())
+      .then(data => { if (!cancelled) setEditModels(data.models || []) })
+      .catch(() => { if (!cancelled) setEditModels([]) })
+    return () => { cancelled = true }
+  }, [editing, editProvider])
   const isDragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, cardX: 0, cardY: 0 })
 
@@ -279,6 +293,8 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
             setEditName(session.name || '')
             setEditSystemPrompt(session.system_prompt || '')
             setEditToolsEnabled(session.tools_enabled !== false)
+            setEditProvider(session.provider_id)
+            setEditModel(session.model)
             setEditing(true)
           }}
           style={{
@@ -368,6 +384,41 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
             }}
           />
 
+          <label style={{ fontSize: 11, color: '#888' }}>Provider</label>
+          <select
+            value={editProvider}
+            onChange={e => {
+              const next = e.target.value
+              setEditProvider(next)
+              if (next !== session.provider_id) setEditModel('')
+            }}
+            style={{
+              padding: '6px 10px', background: '#12121e', color: '#e0e0e0',
+              border: '1px solid #333', borderRadius: 4, fontSize: 12,
+            }}
+          >
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+
+          <label style={{ fontSize: 11, color: '#888' }}>Model</label>
+          <select
+            value={editModel}
+            onChange={e => setEditModel(e.target.value)}
+            style={{
+              padding: '6px 10px', background: '#12121e', color: '#e0e0e0',
+              border: '1px solid #333', borderRadius: 4, fontSize: 12,
+            }}
+          >
+            {editModel && !editModels.some(m => m.id === editModel) && (
+              <option value={editModel}>{editModel} (current)</option>
+            )}
+            {editModels.map(m => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+
           <label style={{ fontSize: 11, color: '#888' }}>System prompt</label>
           <textarea
             value={editSystemPrompt}
@@ -406,12 +457,19 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
                 if (editName.trim() && editName.trim() !== session.name) updates.name = editName.trim()
                 if (editSystemPrompt !== (session.system_prompt || '')) updates.system_prompt = editSystemPrompt
                 if (editToolsEnabled !== (session.tools_enabled !== false)) updates.tools_enabled = editToolsEnabled
+                if (editProvider && editProvider !== session.provider_id) updates.provider_id = editProvider
+                if (editModel && editModel !== session.model) updates.model = editModel
                 if (Object.keys(updates).length > 0) {
                   const res = await fetch(`/api/sessions/${card.session_id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updates),
                   })
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+                    alert(`Couldn't update agent: ${err.error || res.statusText}`)
+                    return
+                  }
                   const updated = await res.json()
                   dispatch(updateStatus({ sessionId: card.session_id, status: updated.status, session: { ...updated, streamingMessage: null } }))
                 }

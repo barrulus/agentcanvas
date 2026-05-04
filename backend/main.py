@@ -221,6 +221,8 @@ async def update_session(session_id: str, request: Request):
     session = agent_manager.get_session(session_id)
     if not session:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    if session.status == "running":
+        return JSONResponse({"error": "Cannot edit a running session"}, status_code=409)
     if "name" in body:
         session.name = body["name"]
     if "system_prompt" in body:
@@ -242,6 +244,25 @@ async def update_session(session_id: str, request: Request):
                 state.tools_enabled = session.tools_enabled
             elif isinstance(state, dict):
                 state["tools_enabled"] = session.tools_enabled
+    # Provider/model swap: drop old provider's per-session state so the next
+    # message re-initialises against the new provider/model.
+    if "provider_id" in body or "model" in body:
+        new_provider_id = body.get("provider_id", session.provider_id)
+        new_model = body.get("model", session.model)
+        if new_provider_id != session.provider_id:
+            old_provider = get_provider(session.provider_id)
+            if hasattr(old_provider, '_sessions') and session.id in old_provider._sessions:
+                old_provider._sessions.pop(session.id, None)
+            session.provider_id = new_provider_id
+        if new_model != session.model:
+            session.model = new_model
+            new_provider = get_provider(session.provider_id)
+            if hasattr(new_provider, '_sessions') and session.id in new_provider._sessions:
+                state = new_provider._sessions[session.id]
+                if hasattr(state, "model"):
+                    state.model = new_model
+                elif isinstance(state, dict):
+                    state["model"] = new_model
     save_session(session)
     await ws_manager.broadcast_dashboard(
         "agent:status",
