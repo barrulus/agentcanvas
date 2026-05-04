@@ -113,6 +113,14 @@ async def clear_downstream(
             await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
             continue
 
+        # Clear merge card
+        from backend.agents.merge_manager import merge_manager
+        merge_card = merge_manager.get_merge_card(target_id)
+        if merge_card:
+            await merge_manager.reset(target_id)
+            await clear_downstream(target_id, dashboard_id, agent_mgr, visited)
+            continue
+
         # Clear view card content
         from backend.sessions.store import load_view_card, save_view_card
         view_card = load_view_card(target_id)
@@ -134,6 +142,77 @@ def _last_assistant_text(card_id: str, agent_mgr: "AgentManager") -> str | None:
         if msg.role == "assistant":
             return msg.content if isinstance(msg.content, str) else str(msg.content)
     return None
+
+
+def _lookup_path(parsed: object, path_parts: list[str]) -> str | None:
+    """Walk a JSON-decoded structure by dot-path. Returns string-coerced leaf, or None."""
+    val: object = parsed
+    for key in path_parts:
+        if isinstance(val, dict) and key in val:
+            val = val[key]
+        else:
+            return None
+    return val if isinstance(val, str) else json.dumps(val)
+
+
+def _resolve_card_name(card_id: str, agent_mgr: "AgentManager") -> str | None:
+    """Resolve a card id to its display name across agent / gate / dialogue / view / input / merge cards."""
+    session = agent_mgr.sessions.get(card_id)
+    if session:
+        return session.name
+    from backend.agents.gate_manager import gate_manager
+    gc = gate_manager.get_gate_card(card_id)
+    if gc:
+        return gc.name
+    from backend.agents.dialogue_manager import dialogue_manager
+    dc = dialogue_manager.get_dialogue_card(card_id)
+    if dc:
+        return dc.name
+    from backend.agents.merge_manager import merge_manager
+    mc = merge_manager.get_merge_card(card_id)
+    if mc:
+        return mc.name
+    from backend.sessions.store import load_view_card, load_input_card
+    vc = load_view_card(card_id)
+    if vc:
+        return vc.name
+    ic = load_input_card(card_id)
+    if ic:
+        return ic.name
+    return None
+
+
+def _apply_template_with_slots(template: str, slots: dict[str, str]) -> str:
+    """Render a MergeCard template.
+
+    Supported placeholders:
+    - {{slot.<Name>}} — full text of the slot keyed by name.lower()
+    - {{slot.<Name>.field}} — JSON dot-path into the slot's parsed output
+
+    Failure modes (unknown slot, missing field, non-JSON) leave the placeholder intact.
+    """
+    def replace(match: re.Match) -> str:
+        expr = match.group(1).strip()
+        if not expr.startswith("slot."):
+            return match.group(0)
+        rest = expr[len("slot."):]
+        if "." in rest:
+            name, _, path = rest.partition(".")
+            path_parts = path.split(".") if path else []
+        else:
+            name, path_parts = rest, []
+        slot_text = slots.get(name.strip().lower())
+        if slot_text is None:
+            return match.group(0)
+        if not path_parts:
+            return slot_text
+        parsed = AgentManager._extract_json(slot_text)
+        if not isinstance(parsed, dict):
+            return match.group(0)
+        resolved = _lookup_path(parsed, path_parts)
+        return resolved if resolved is not None else match.group(0)
+
+    return re.sub(r"\{\{([^{}]+)\}\}", replace, template)
 
 
 async def route_to_downstream(
@@ -181,25 +260,7 @@ async def route_to_downstream(
 
     # Build a name→card_id lookup for all targets
     def _get_target_name(target_id: str) -> str | None:
-        target_session = agent_mgr.sessions.get(target_id)
-        if target_session:
-            return target_session.name
-        from backend.agents.gate_manager import gate_manager
-        gc = gate_manager.get_gate_card(target_id)
-        if gc:
-            return gc.name
-        from backend.agents.dialogue_manager import dialogue_manager
-        dc = dialogue_manager.get_dialogue_card(target_id)
-        if dc:
-            return dc.name
-        from backend.sessions.store import load_view_card, load_input_card
-        vc = load_view_card(target_id)
-        if vc:
-            return vc.name
-        ic = load_input_card(target_id)
-        if ic:
-            return ic.name
-        return None
+        return _resolve_card_name(target_id, agent_mgr)
 
     # If route tags exist, filter connections to only matching targets
     if route_tags:
@@ -311,6 +372,17 @@ async def route_to_downstream(
         dialogue_card = dialogue_manager.get_dialogue_card(target_id)
         if dialogue_card:
             await dialogue_manager.receive_input(target_id, conn.id, routed_text)
+            return
+
+        # Target is a merge card
+        from backend.agents.merge_manager import merge_manager
+        merge_card = merge_manager.get_merge_card(target_id)
+        if merge_card:
+            upstream_name = _resolve_card_name(from_card_id, agent_mgr)
+            if upstream_name is None:
+                logger.warning("MergeCard %s: ignoring input from unnamed source %s", target_id, from_card_id)
+                return
+            await merge_manager.receive_input(target_id, upstream_name, routed_text, agent_mgr)
             return
 
         # Target is a view card
@@ -976,15 +1048,6 @@ class AgentManager:
         if nodes is None:
             nodes = {}
         own_parsed = AgentManager._extract_json(text)
-
-        def _lookup_path(parsed: object, path_parts: list[str]) -> str | None:
-            val: object = parsed
-            for key in path_parts:
-                if isinstance(val, dict) and key in val:
-                    val = val[key]
-                else:
-                    return None
-            return val if isinstance(val, str) else json.dumps(val)
 
         def replace(match: re.Match) -> str:
             expr = match.group(1).strip()
