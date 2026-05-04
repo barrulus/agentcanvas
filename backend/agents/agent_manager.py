@@ -125,6 +125,17 @@ async def clear_downstream(
             )
 
 
+def _last_assistant_text(card_id: str, agent_mgr: "AgentManager") -> str | None:
+    """Return the last assistant text for an agent session, or None for non-agent cards."""
+    session = agent_mgr.sessions.get(card_id)
+    if not session:
+        return None
+    for msg in reversed(session.messages):
+        if msg.role == "assistant":
+            return msg.content if isinstance(msg.content, str) else str(msg.content)
+    return None
+
+
 async def route_to_downstream(
     from_card_id: str,
     content: str,
@@ -207,6 +218,20 @@ async def route_to_downstream(
             )
             return
 
+    # Build name → last-assistant-text for every node with a direct inbound edge to any of this run's targets.
+    # Reused across all _route_single calls within this routing pass.
+    target_ids = {c.to_card_id for c in outgoing}
+    inbound = [c for c in connections if c.to_card_id in target_ids]
+    nodes_map: dict[str, str] = {}
+    for c in inbound:
+        name = _get_target_name(c.from_card_id)
+        if not name:
+            continue
+        upstream_text = _last_assistant_text(c.from_card_id, agent_mgr)
+        if upstream_text is None:
+            continue
+        nodes_map[name.lower()] = upstream_text
+
     async def _route_single(conn: "Connection") -> None:
         if not AgentManager._evaluate_condition(conn.condition, content):
             return
@@ -234,7 +259,7 @@ async def route_to_downstream(
 
         # Transform
         if conn.transform:
-            routed_text = AgentManager._apply_transform(conn.transform, routed_text)
+            routed_text = AgentManager._apply_transform(conn.transform, routed_text, nodes_map)
 
         # Circuit breaker gate rule
         if conn.gate_rule:
