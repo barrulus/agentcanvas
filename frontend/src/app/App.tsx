@@ -5,6 +5,7 @@ import { Canvas } from './pages/Canvas/Canvas'
 import { Toolbar } from './pages/Canvas/Toolbar'
 import { Settings } from './pages/Settings/Settings'
 import { History } from './pages/History/History'
+import { RunsDrawer } from './pages/Canvas/RunsDrawer'
 import { Templates } from './pages/Templates/Templates'
 import { PromptTemplate } from '@/shared/state/templatesSlice'
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts'
@@ -13,6 +14,7 @@ import { getCanvasPrefs } from '@/shared/prefs'
 export function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [showRuns, setShowRuns] = useState(false)
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<PromptTemplate | null>(null)
@@ -57,6 +59,7 @@ export function App() {
       <Toolbar
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={() => setShowHistory(true)}
+        onOpenRuns={() => setShowRuns(true)}
         onOpenTemplates={() => setShowTemplates(true)}
         showDialog={showNewAgent}
         setShowDialog={setShowNewAgent}
@@ -66,6 +69,7 @@ export function App() {
       <Canvas />
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
       {showHistory && <History onClose={() => setShowHistory(false)} />}
+      {showRuns && <RunsDrawer onClose={() => setShowRuns(false)} />}
       {showTemplates && <Templates onClose={() => setShowTemplates(false)} onUseTemplate={(t) => {
         setPendingTemplate(t)
         setShowTemplates(false)

@@ -22,6 +22,7 @@ function renderTemplate(prompt: string, fieldValues: Record<string, string>): st
 interface ToolbarProps {
   onOpenSettings?: () => void
   onOpenHistory?: () => void
+  onOpenRuns?: () => void
   onOpenTemplates?: () => void
   showDialog?: boolean
   setShowDialog?: (v: boolean) => void
@@ -29,7 +30,7 @@ interface ToolbarProps {
   onTemplateClear?: () => void
 }
 
-export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDialog: showDialogProp, setShowDialog: setShowDialogProp, initialTemplate, onTemplateClear }: ToolbarProps) {
+export function Toolbar({ onOpenSettings, onOpenHistory, onOpenRuns, onOpenTemplates, showDialog: showDialogProp, setShowDialog: setShowDialogProp, initialTemplate, onTemplateClear }: ToolbarProps) {
   const dispatch = useDispatch<AppDispatch>()
   const providers = useSelector((s: RootState) => s.agents.providers)
   const sessions = useSelector((s: RootState) => s.agents.sessions)
@@ -389,6 +390,23 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         title="Session history"
       >
         &#128339;
+      </button>
+
+      <button
+        onClick={onOpenRuns}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#888',
+          border: '1px solid #333',
+          borderRadius: 6,
+          fontSize: 15,
+          cursor: 'pointer',
+          lineHeight: 1,
+        }}
+        title="Workflow runs"
+      >
+        &#128202;
       </button>
 
       <button
