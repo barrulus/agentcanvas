@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
 import { moveCard, moveSelected, resizeCard, bringToFront, removeCard, setSelected, toggleCardCollapsed } from '@/shared/state/canvasSlice'
 import { MergeCard, removeMergeCard, updateMergeCard, resetMergeCard } from '@/shared/state/mergeCardsSlice'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
@@ -16,7 +17,14 @@ const STATUS_COLORS: Record<MergeCard['status'], string> = {
   error: '#ef5350',
 }
 
-export function MergeCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
+export function MergeCardComponent({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const mergeCard = useSelector((s: RootState) => s.mergeCards.cards[card.session_id])
   const isDragging = useRef(false)
@@ -133,7 +141,7 @@ export function MergeCardComponent({ card, chromeless = false }: { card: CardPos
           width: 200,
           height: 44,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : '1px solid #00446b44',
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #00446b44',
           borderRadius: 10,
           display: 'flex',
           alignItems: 'center',
@@ -142,6 +150,7 @@ export function MergeCardComponent({ card, chromeless = false }: { card: CardPos
           cursor: 'grab',
           userSelect: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
@@ -166,12 +175,13 @@ export function MergeCardComponent({ card, chromeless = false }: { card: CardPos
           width: card.width,
           height: card.height,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : '1px solid #00446b33',
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #00446b33',
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           boxShadow: '0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px #00446b22',
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         {/* Header */}

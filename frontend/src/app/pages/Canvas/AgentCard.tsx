@@ -8,6 +8,7 @@ import { AgentChat } from '../AgentChat/AgentChat'
 import { wsManager } from '@/shared/ws/WebSocketManager'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
@@ -21,12 +22,19 @@ const STATUS_COLORS: Record<string, string> = {
   stopped: '#ffa726',
 }
 
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
   'ollama': 'Ollama',
 }
 
-export function AgentCard({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+export function AgentCard({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const session = useSelector((s: RootState) => s.agents.sessions[card.session_id])
   const [expanded, setExpanded] = useState(false)  // chat view expansion
@@ -148,7 +156,7 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
           width: 200,
           height: 44,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : `1px solid ${statusColor}44`,
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${statusColor}44`,
           borderRadius: 10,
           display: 'flex',
           alignItems: 'center',
@@ -157,6 +165,7 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
           cursor: 'grab',
           userSelect: 'none',
           boxShadow: `0 2px 12px rgba(0,0,0,0.3), 0 0 0 1px ${statusColor}22`,
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <div style={{
@@ -187,13 +196,14 @@ export function AgentCard({ card, chromeless = false }: { card: CardPosition; ch
         width: card.width,
         height: h,
         background: '#1a1a2e',
-        border: isSelected ? '2px solid #66bb6a' : `1px solid ${statusColor}33`,
+        border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${statusColor}33`,
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px ${statusColor}22`,
         transition: 'box-shadow 0.2s',
+        opacity: overlay?.notInRun ? 0.3 : 1,
       }}
     >
       {/* Header / drag handle */}

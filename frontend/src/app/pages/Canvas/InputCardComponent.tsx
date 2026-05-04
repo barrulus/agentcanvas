@@ -4,12 +4,20 @@ import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '@/shared/state/store'
 import { moveCard, moveSelected, resizeCard, bringToFront, removeCard, setSelected, toggleCardCollapsed } from '@/shared/state/canvasSlice'
 import { removeInputCard, sendInputCard, updateInputCard } from '@/shared/state/inputCardsSlice'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
 }
 
-export function InputCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
+export function InputCardComponent({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const inputCard = useSelector((s: RootState) => s.inputCards.cards[card.session_id])
   const [editingName, setEditingName] = useState(false)
@@ -133,7 +141,7 @@ export function InputCardComponent({ card, chromeless = false }: { card: CardPos
           width: 200,
           height: 44,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : `1px solid ${sourceColor}44`,
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${sourceColor}44`,
           borderRadius: 10,
           display: 'flex',
           alignItems: 'center',
@@ -142,6 +150,7 @@ export function InputCardComponent({ card, chromeless = false }: { card: CardPos
           cursor: 'grab',
           userSelect: 'none',
           boxShadow: `0 2px 12px rgba(0,0,0,0.3), 0 0 0 1px ${sourceColor}22`,
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <span style={{ fontSize: 10, color: sourceColor, fontWeight: 600 }}>INPUT</span>
@@ -168,12 +177,13 @@ export function InputCardComponent({ card, chromeless = false }: { card: CardPos
         width: card.width,
         height: card.height,
         background: '#1a1a2e',
-        border: isSelected ? '2px solid #66bb6a' : `1px solid ${sourceColor}33`,
+        border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${sourceColor}33`,
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px ${sourceColor}22`,
+        opacity: overlay?.notInRun ? 0.3 : 1,
       }}
     >
       {/* Header */}

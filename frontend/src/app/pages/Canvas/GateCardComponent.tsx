@@ -6,6 +6,7 @@ import { moveCard, moveSelected, resizeCard, bringToFront, removeCard, setSelect
 import { removeGateCard } from '@/shared/state/gateCardsSlice'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
@@ -19,7 +20,14 @@ const STATUS_COLORS: Record<string, string> = {
   error: '#ef5350',
 }
 
-export function GateCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
+export function GateCardComponent({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const gateCard = useSelector((s: RootState) => s.gateCards.cards[card.session_id])
   const connections = useSelector((s: RootState) => s.canvas.connections)
@@ -139,7 +147,7 @@ export function GateCardComponent({ card, chromeless = false }: { card: CardPosi
           width: 200,
           height: 44,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : '1px solid #6b400044',
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #6b400044',
           borderRadius: 10,
           display: 'flex',
           alignItems: 'center',
@@ -148,6 +156,7 @@ export function GateCardComponent({ card, chromeless = false }: { card: CardPosi
           cursor: 'grab',
           userSelect: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
@@ -171,12 +180,13 @@ export function GateCardComponent({ card, chromeless = false }: { card: CardPosi
         width: card.width,
         height: card.height,
         background: '#1a1a2e',
-        border: isSelected ? '2px solid #66bb6a' : '1px solid #6b400033',
+        border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #6b400033',
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: '0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px #6b400022',
+        opacity: overlay?.notInRun ? 0.3 : 1,
       }}
     >
       {/* Header */}

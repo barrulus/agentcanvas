@@ -9,6 +9,7 @@ import {
   type DialogueParticipant,
 } from '@/shared/state/dialogueCardsSlice'
 import { fetchProviders } from '@/shared/state/agentsSlice'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
@@ -21,9 +22,16 @@ const STATUS_COLORS: Record<string, string> = {
   error: '#ef5350',
 }
 
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
 const ACCENT = '#ba68c8'
 
-export function DialogueCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+export function DialogueCardComponent({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const dialogueCard = useSelector((s: RootState) => s.dialogueCards.cards[card.session_id])
   const providers = useSelector((s: RootState) => s.agents.providers)
@@ -141,9 +149,10 @@ export function DialogueCardComponent({ card, chromeless = false }: { card: Card
           position: chromeless ? 'relative' : 'absolute',
           ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
           width: 200, height: 44, background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : `1px solid ${ACCENT}44`,
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${ACCENT}44`,
           borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 8,
           cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor }} />
@@ -166,9 +175,10 @@ export function DialogueCardComponent({ card, chromeless = false }: { card: Card
         position: chromeless ? 'relative' : 'absolute',
         ...(chromeless ? {} : { left: card.x, top: card.y, zIndex: card.zOrder }),
         width: card.width, height: card.height, background: '#1a1a2e',
-        border: isSelected ? '2px solid #66bb6a' : `1px solid ${ACCENT}33`,
+        border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : `1px solid ${ACCENT}33`,
         borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px ${ACCENT}22`,
+        opacity: overlay?.notInRun ? 0.3 : 1,
       }}
     >
       {/* Header */}

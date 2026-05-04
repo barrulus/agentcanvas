@@ -6,12 +6,20 @@ import { moveCard, moveSelected, resizeCard, bringToFront, removeCard, setSelect
 import { removeViewCard, updateViewCard } from '@/shared/state/viewCardsSlice'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { RunOverlay } from './xyflow/nodes'
 
 interface CardPosition {
   session_id: string; x: number; y: number; width: number; height: number; zOrder: number; collapsed?: boolean
 }
 
-export function ViewCardComponent({ card, chromeless = false }: { card: CardPosition; chromeless?: boolean }) {
+const RUN_STATUS_COLORS: Record<NonNullable<RunOverlay['runStatus']>, string> = {
+  running: '#4fc3f7',
+  completed: '#66bb6a',
+  error: '#ef5350',
+  stopped: '#ffa726',
+}
+
+export function ViewCardComponent({ card, chromeless = false, overlay }: { card: CardPosition; chromeless?: boolean; overlay?: RunOverlay }) {
   const dispatch = useDispatch<AppDispatch>()
   const viewCard = useSelector((s: RootState) => s.viewCards.cards[card.session_id])
   const [editingName, setEditingName] = useState(false)
@@ -123,7 +131,7 @@ export function ViewCardComponent({ card, chromeless = false }: { card: CardPosi
           width: 200,
           height: 44,
           background: '#1a1a2e',
-          border: isSelected ? '2px solid #66bb6a' : '1px solid #4a3a6644',
+          border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #4a3a6644',
           borderRadius: 10,
           display: 'flex',
           alignItems: 'center',
@@ -132,6 +140,7 @@ export function ViewCardComponent({ card, chromeless = false }: { card: CardPosi
           cursor: 'grab',
           userSelect: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: overlay?.notInRun ? 0.3 : 1,
         }}
       >
         <span style={{ fontSize: 10, color: '#b39ddb', fontWeight: 600 }}>VIEW</span>
@@ -154,12 +163,13 @@ export function ViewCardComponent({ card, chromeless = false }: { card: CardPosi
         width: card.width,
         height: card.height,
         background: '#1a1a2e',
-        border: isSelected ? '2px solid #66bb6a' : '1px solid #4a3a6633',
+        border: isSelected ? '2px solid #66bb6a' : overlay?.runStatus ? `2px solid ${RUN_STATUS_COLORS[overlay.runStatus]}` : '1px solid #4a3a6633',
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: '0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px #4a3a6622',
+        opacity: overlay?.notInRun ? 0.3 : 1,
       }}
     >
       {/* Header */}
