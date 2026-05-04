@@ -230,7 +230,14 @@ async def route_to_downstream(
         upstream_text = _last_assistant_text(c.from_card_id, agent_mgr)
         if upstream_text is None:
             continue
-        nodes_map[name.lower()] = upstream_text
+        key = name.lower()
+        if key in nodes_map:
+            logger.warning(
+                "Upstream name collision in nodes_map for %r — keeping first match, ignoring %s",
+                name, c.from_card_id,
+            )
+            continue
+        nodes_map[key] = upstream_text
 
     async def _route_single(conn: "Connection") -> None:
         if not AgentManager._evaluate_condition(conn.condition, content):
