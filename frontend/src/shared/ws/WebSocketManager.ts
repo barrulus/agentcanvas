@@ -4,6 +4,7 @@ import { placeCard, addConnection, setConnectionBlocked, clearConnectionBlocked 
 import { setViewCard } from '../state/viewCardsSlice'
 import { setGateCard } from '../state/gateCardsSlice'
 import { setMergeCard } from '../state/mergeCardsSlice'
+import { setRun } from '../state/runsSlice'
 import { setDialogueCard } from '../state/dialogueCardsSlice'
 
 class WebSocketManager {
@@ -107,6 +108,12 @@ class WebSocketManager {
       case 'merge_card:update':
         if (data.card) {
           store.dispatch(setMergeCard(data.card))
+        }
+        break
+
+      case 'run:update':
+        if (data.run) {
+          store.dispatch(setRun(data.run))
         }
         break
 
