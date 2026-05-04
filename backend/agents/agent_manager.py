@@ -965,26 +965,27 @@ class AgentManager:
                 resolved = _lookup_path(own_parsed, expr[len("output."):].split("."))
                 return resolved if resolved is not None else match.group(0)
 
-            # {{nodes.<Name>}} | {{nodes.<Name>.output}} | {{nodes.<Name>.output.field...}}
+            # {{nodes.<Name>.output}} or {{nodes.<Name>.output.field...}}
             if expr.startswith("nodes."):
                 rest = expr[len("nodes."):]
-                # Split off the trailing ".output[.field...]" segment, keeping the name intact.
-                if ".output" in rest:
-                    name, _, tail = rest.partition(".output")
+                if ".output." in rest:
+                    name, _, path = rest.partition(".output.")
+                    path_parts = path.split(".") if path else []
+                elif rest.endswith(".output"):
+                    name = rest[: -len(".output")]
+                    path_parts = []
                 else:
-                    name, tail = rest, ""
+                    return match.group(0)
                 node_text = nodes.get(name.strip().lower())
                 if node_text is None:
                     return match.group(0)
-                if tail in ("", ".output"):
+                if not path_parts:
                     return node_text
-                if tail.startswith("."):
-                    parsed = AgentManager._extract_json(node_text)
-                    if not isinstance(parsed, dict):
-                        return match.group(0)
-                    resolved = _lookup_path(parsed, tail.lstrip(".").split("."))
-                    return resolved if resolved is not None else match.group(0)
-                return match.group(0)
+                parsed = AgentManager._extract_json(node_text)
+                if not isinstance(parsed, dict):
+                    return match.group(0)
+                resolved = _lookup_path(parsed, path_parts)
+                return resolved if resolved is not None else match.group(0)
 
             return match.group(0)
 
