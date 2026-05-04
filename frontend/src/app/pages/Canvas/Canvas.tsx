@@ -41,8 +41,10 @@ function CanvasInner() {
   const canvasState = useSelector((s: RootState) => s.canvas)
   const { cards, connections, groups, currentDashboardId, constraints, selectedCards } = canvasState
 
-  const reduxNodes = useMemo(() => selectNodes(canvasState), [canvasState])
-  const reduxEdges = useMemo(() => selectEdges(canvasState), [canvasState])
+  const activeRunId = useSelector((s: RootState) => s.runs.activeRunId)
+  const activeRun = useSelector((s: RootState) => activeRunId ? s.runs.byId[activeRunId] : null)
+  const reduxNodes = useMemo(() => selectNodes(canvasState, activeRun), [canvasState, activeRun])
+  const reduxEdges = useMemo(() => selectEdges(canvasState, activeRun), [canvasState, activeRun])
   // Local state mirrors Redux but absorbs in-flight drag changes for smooth visuals.
   // Redux is the source of truth — synced from it whenever it changes.
   const [nodes, setNodes] = useState(reduxNodes)

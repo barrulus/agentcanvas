@@ -1,6 +1,7 @@
 import { MarkerType, type Node, type Edge, type NodeChange, type EdgeChange, type Connection as XYConnection } from '@xyflow/react'
 import type { Dispatch } from '@reduxjs/toolkit'
 import type { RootState } from '@/shared/state/store'
+import type { WorkflowRun } from '@/shared/state/runsSlice'
 import {
   moveCard,
   removeCard,
@@ -17,6 +18,13 @@ export type CardNodeData = {
   collapsed: boolean
   zOrder: number
   groupId?: string
+  // run overlay (set when an active run is selected)
+  runStatus?: 'running' | 'completed' | 'error' | 'stopped'
+  runCost?: number
+  runTokens?: number
+  runError?: string | null
+  runDurationMs?: number
+  notInRun?: boolean
 }
 
 export type AgentEdgeData = {
@@ -25,6 +33,8 @@ export type AgentEdgeData = {
   transform?: string
   gate_rule?: string
   blockedReason?: string
+  // run overlay
+  firedInRun?: boolean
 }
 
 export type CardNode = Node<CardNodeData>
@@ -40,7 +50,7 @@ function effectiveSize(card: CanvasState['cards'][string]): { width: number; hei
   return { width: card.width, height: card.height }
 }
 
-export function selectNodes(state: CanvasState): AnyNode[] {
+export function selectNodes(state: CanvasState, activeRun?: WorkflowRun | null): AnyNode[] {
   const groupOf: Record<string, string> = {}
   const collapsedHidden = new Set<string>()
   for (const g of Object.values(state.groups)) {
@@ -50,10 +60,32 @@ export function selectNodes(state: CanvasState): AnyNode[] {
     }
   }
 
+  // Build a card_id → CardRunRecord lookup once per call.
+  const runByCardId: Record<string, NonNullable<typeof activeRun>['card_runs'][number]> = {}
+  if (activeRun) {
+    for (const cr of activeRun.card_runs) {
+      runByCardId[cr.card_id] = cr
+    }
+  }
+
   const cardNodes: CardNode[] = Object.values(state.cards)
     .filter((c) => !collapsedHidden.has(c.session_id))
     .map((card) => {
       const { width, height } = effectiveSize(card)
+      const cr = activeRun ? runByCardId[card.session_id] : undefined
+      const overlayFields: Partial<CardNodeData> = activeRun
+        ? cr
+          ? {
+              runStatus: cr.status,
+              runCost: cr.cost_usd,
+              runTokens: cr.tokens,
+              runError: cr.error_text,
+              runDurationMs: cr.ended_at && cr.started_at
+                ? Math.round((cr.ended_at - cr.started_at) * 1000)
+                : undefined,
+            }
+          : { notInRun: true }
+        : {}
       return {
         id: card.session_id,
         type: `${card.card_type ?? 'agent'}Card`,
@@ -67,6 +99,7 @@ export function selectNodes(state: CanvasState): AnyNode[] {
           collapsed: !!card.collapsed,
           zOrder: card.zOrder,
           groupId: groupOf[card.session_id],
+          ...overlayFields,
         },
       }
     })
@@ -128,13 +161,21 @@ export function selectNodes(state: CanvasState): AnyNode[] {
   return [...groupNodes, ...cardNodes]
 }
 
-export function selectEdges(state: CanvasState): AgentEdge[] {
+export function selectEdges(state: CanvasState, activeRun?: WorkflowRun | null): AgentEdge[] {
   // Map: card-in-collapsed-group → synthetic group node id (so we can rewrite endpoints)
   const collapsedMemberGroup: Record<string, string> = {}
   for (const g of Object.values(state.groups)) {
     if (!g.collapsed) continue
     const groupNodeId = `group:${g.id}`
     for (const mid of g.memberIds) collapsedMemberGroup[mid] = groupNodeId
+  }
+
+  // Build a set of edge ids that fired in the active run.
+  const firedEdgeIds = new Set<string>()
+  if (activeRun) {
+    for (const cr of activeRun.card_runs) {
+      for (const eid of cr.routes_taken) firedEdgeIds.add(eid)
+    }
   }
 
   const seen = new Set<string>()
@@ -172,6 +213,7 @@ export function selectEdges(state: CanvasState): AgentEdge[] {
         transform: c.transform,
         gate_rule: c.gate_rule,
         blockedReason,
+        firedInRun: activeRun ? firedEdgeIds.has(c.id) : undefined,
       },
     })
   }
