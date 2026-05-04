@@ -74,7 +74,7 @@ class Connection(BaseModel):
     to_card_id: str
     condition: Optional[str] = None  # e.g. "contains:error", "not_contains:ok", "regex:SUCCESS"
     output_schema: Optional[dict] = None  # JSON Schema to validate output before routing
-    transform: Optional[str] = None  # Template string: {{output}} for full text, {{output.field}} for JSON field access
+    transform: Optional[str] = None  # Template: {{output}}, {{output.field}}, {{nodes.<Name>.output}}, {{nodes.<Name>.output.field}} — see docs/workflows.md
     gate_rule: Optional[str] = None  # Circuit breaker: "require:text", "reject:text", "min_length:N", "max_length:N"
 
 
