@@ -65,21 +65,13 @@ function CanvasInner() {
 
   const sessions = useSelector((s: RootState) => s.agents.sessions)
 
-  const upstreamNodes = useMemo<UpstreamNode[]>(() => {
-    if (!editingConn) return []
+  const immediateUpstream = useMemo<UpstreamNode | null>(() => {
+    if (!editingConn) return null
     const conn = connections.find((c) => c.id === editingConn.connId)
-    if (!conn) return []
-    const inbound = connections.filter((c) => c.to === conn.to)
-    const seen = new Set<string>()
-    const out: UpstreamNode[] = []
-    for (const c of inbound) {
-      if (seen.has(c.from)) continue
-      seen.add(c.from)
-      const name = sessions[c.from]?.name
-      if (!name) continue
-      out.push({ id: c.from, name, isImmediate: c.from === conn.from })
-    }
-    return out
+    if (!conn) return null
+    const name = sessions[conn.from]?.name
+    if (!name) return null
+    return { id: conn.from, name }
   }, [editingConn, connections, sessions])
 
   const [prefs, setPrefsState] = useState(getCanvasPrefs())
@@ -301,7 +293,7 @@ function CanvasInner() {
               <span style={{ color: '#555', fontWeight: 400 }}>{' — {{output}}, {{output.field}}, {{nodes.<Name>.output[.field]}}'}</span>
             </label>
             <UpstreamPicker
-              upstream={upstreamNodes}
+              upstream={immediateUpstream}
               onInsert={(snippet) => {
                 const ta = transformRef.current
                 const current = editingConn.transform || ''
