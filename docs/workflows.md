@@ -204,7 +204,37 @@ Forwarding raw text from a non-JSON upstream by name:
 
 **Discoverability**
 
-In the canvas, right-click any connection → *Edit data contract*. The transform field has an **Insert from upstream** strip: pick an upstream node, then click any detected JSON field to insert the matching placeholder at the cursor.
+In the canvas, right-click any connection → *Edit data contract*. The transform field has an **Insert from upstream** strip showing the immediate upstream's available fields — click a chip to insert it at the cursor. For multi-input composition (pulling from sibling upstreams in one transform), use a [Merge Card](#merge-cards) instead.
+
+## Merge Cards
+
+A **Merge Card** is a non-agent node that joins multiple inbound edges into a single composed downstream message. Use it when one downstream agent needs data from two or more upstream agents in the same prompt.
+
+```
+Optimist  ─┐
+           ├─→ MergeCard "Pros: {{slot.Optimist}} / Cons: {{slot.Pessimist}}" ─→ Editor
+Pessimist ─┘
+```
+
+### How it works
+
+1. Each inbound edge keeps its normal contract (condition, schema, transform, gate). The transform shapes that single upstream's contribution before it lands in a slot.
+2. When an upstream's edge fires, the Merge Card stores its text in a slot keyed by the **upstream's display name** (case-insensitive).
+3. The card waits until **every** direct-inbound upstream has filled its slot at least once. Then it renders its template, emits the result downstream, clears its slots, and re-arms.
+4. If the timeout (default 60 seconds, configurable per card) elapses before all slots are filled, the card flips to **error** and stops. Slots are preserved for inspection. Click **Reset** on the card to clear and re-arm.
+
+### Template grammar
+
+| Placeholder | Resolves to |
+|---|---|
+| `{{slot.<Name>}}` | Full text in the slot (case-insensitive name lookup) |
+| `{{slot.<Name>.field}}` | JSON dot-path into the slot's parsed output |
+
+Unresolved placeholders (unknown slot, missing field, non-JSON output) are left intact in the rendered string — same convention as transform expressions.
+
+### Compared to per-edge `{{nodes.<Name>.output}}`
+
+The `{{nodes.<Name>.output}}` syntax in transform expressions still works, but the connection editor's picker no longer surfaces sibling upstreams — for fan-in composition, use a Merge Card. The per-edge picker now lists fields from the immediate upstream only, which matches most users' mental model: an edge's transform shapes that one upstream's contribution.
 
 ## Named Routing
 
