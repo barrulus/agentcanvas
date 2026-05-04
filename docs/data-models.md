@@ -70,7 +70,7 @@ A directed edge between two cards.
 | `to_card_id` | string | required | Target card ID |
 | `condition` | string? | null | Routing condition: `contains:text`, `not_contains:text`, `regex:pattern` |
 | `output_schema` | dict? | null | JSON Schema for output validation |
-| `transform` | string? | null | Template: `{{output}}` for full text, `{{output.field}}` for JSON fields |
+| `transform` | string? | null | Template — see [Transform expressions](workflows.md#transform-expressions) for the full grammar |
 | `gate_rule` | string? | null | Circuit breaker: `require:text`, `reject:text`, `min_length:N`, `max_length:N` |
 
 ## InputCard

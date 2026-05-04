@@ -162,6 +162,50 @@ Draw a connection by clicking a port (cyan dot) on one card and dragging to anot
 | **Transform** | Reshape output before sending | `{{output.summary}}`, `Summarize: {{output}}` |
 | **Gate Rule** | [Circuit breaker](#circuit-breakers): halts routing on failure | `require:approved`, `min_length:100` |
 
+### Transform expressions
+
+The transform field is a small templating language run on the upstream output before it's forwarded.
+
+**Grammar**
+
+| Placeholder | Resolves to |
+|---|---|
+| `{{output}}` | Full text of the immediate upstream node |
+| `{{output.field}}` | JSON dot-path into the immediate upstream's parsed output |
+| `{{nodes.<Name>.output}}` | Full text of any node with a direct inbound edge to the receiver, looked up by case-insensitive name |
+| `{{nodes.<Name>.output.field}}` | JSON dot-path into that named node's parsed output |
+
+`<Name>` matches the card's display name (case-insensitive, may contain spaces). If two upstreams share a name the first match wins and a warning is logged — the connection editor's picker prevents this by listing real names.
+
+If a placeholder fails to resolve (unknown node, missing field, output isn't JSON) it is left intact in the rendered string. This is deliberate — silent corruption is worse than a visible placeholder.
+
+Only **direct** inbound edges of the receiving node are reachable. Transitive walking and an n8n-style expression engine (`$now`, `$workflow`, jsonpath, JS sandbox) are out of scope by design.
+
+**Examples**
+
+Single-upstream JSON pluck:
+
+```
+Summary: {{output.summary}}
+```
+
+Multi-upstream aggregator (e.g. an "Editor" agent that has two inbound edges from "Optimist" and "Pessimist"):
+
+```
+Pros from {{nodes.Optimist.output.points}}
+Cons from {{nodes.Pessimist.output.points}}
+```
+
+Forwarding raw text from a non-JSON upstream by name:
+
+```
+{{nodes.Researcher.output}}
+```
+
+**Discoverability**
+
+In the canvas, right-click any connection → *Edit data contract*. The transform field has an **Insert from upstream** strip: pick an upstream node, then click any detected JSON field to insert the matching placeholder at the cursor.
+
 ## Named Routing
 
 For decision/router agents that need to direct output to a specific downstream agent, use **named routing tags**:
