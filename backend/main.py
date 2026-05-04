@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
     input_manager.restore_input_cards()
     from backend.agents.gate_manager import gate_manager
     gate_manager.restore_gate_cards()
+    from backend.agents.merge_manager import merge_manager
+    merge_manager.restore_merge_cards()
     from backend.agents.dialogue_manager import dialogue_manager
     dialogue_manager.restore_dialogue_cards()
     from backend.templates.store import seed_builtin_templates
@@ -426,6 +428,63 @@ async def delete_gate_card(card_id: str):
 async def reset_gate_card(card_id: str):
     from backend.agents.gate_manager import gate_manager
     await gate_manager.reset(card_id)
+    return {"ok": True}
+
+
+# --- Merge Cards ---
+
+
+@app.post("/api/merge-cards")
+async def create_merge_card_endpoint(request: Request):
+    from backend.agents.merge_manager import merge_manager
+    body = await request.json()
+    card = merge_manager.create_merge_card(
+        name=body.get("name", "Merge"),
+        template=body.get("template", ""),
+        timeout_seconds=int(body.get("timeout_seconds", 60)),
+        dashboard_id=body.get("dashboard_id"),
+    )
+    return card.model_dump()
+
+
+@app.get("/api/merge-cards")
+async def list_merge_cards(request: Request):
+    from backend.agents.merge_manager import merge_manager
+    dashboard_id = request.query_params.get("dashboard_id")
+    cards = merge_manager.list_merge_cards(dashboard_id)
+    return {"merge_cards": [c.model_dump() for c in cards]}
+
+
+@app.get("/api/merge-cards/{card_id}")
+async def get_merge_card(card_id: str):
+    from backend.agents.merge_manager import merge_manager
+    card = merge_manager.get_merge_card(card_id)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.patch("/api/merge-cards/{card_id}")
+async def update_merge_card(card_id: str, request: Request):
+    from backend.agents.merge_manager import merge_manager
+    body = await request.json()
+    card = merge_manager.update_merge_card(card_id, body)
+    if not card:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return card.model_dump()
+
+
+@app.delete("/api/merge-cards/{card_id}")
+async def delete_merge_card(card_id: str):
+    from backend.agents.merge_manager import merge_manager
+    merge_manager.delete_merge_card(card_id)
+    return {"ok": True}
+
+
+@app.post("/api/merge-cards/{card_id}/reset")
+async def reset_merge_card(card_id: str):
+    from backend.agents.merge_manager import merge_manager
+    await merge_manager.reset(card_id)
     return {"ok": True}
 
 
