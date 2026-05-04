@@ -97,7 +97,7 @@ interface CardPosition {
   width: number
   height: number
   zOrder: number
-  card_type?: 'agent' | 'view' | 'input' | 'gate' | 'dialogue'
+  card_type?: 'agent' | 'view' | 'input' | 'gate' | 'dialogue' | 'merge'
   collapsed?: boolean
 }
 
@@ -179,7 +179,7 @@ const canvasSlice = createSlice({
   name: 'canvas',
   initialState,
   reducers: {
-    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' | 'input' | 'gate' | 'dialogue' }>) {
+    placeCard(state, action: PayloadAction<{ sessionId: string; x?: number; y?: number; card_type?: 'agent' | 'view' | 'input' | 'gate' | 'dialogue' | 'merge' }>) {
       const pos = action.payload.x !== undefined
         ? { x: action.payload.x, y: action.payload.y! }
         : findOpenPosition(state.cards)

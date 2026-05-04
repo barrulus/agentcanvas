@@ -7,6 +7,7 @@ import { placeCard, loadLayout, addConnection, fetchDashboards, createDashboard,
 import { createViewCard, fetchViewCards } from '@/shared/state/viewCardsSlice'
 import { createInputCard, fetchInputCards } from '@/shared/state/inputCardsSlice'
 import { createGateCard, fetchGateCards } from '@/shared/state/gateCardsSlice'
+import { createMergeCard, fetchMergeCards } from '@/shared/state/mergeCardsSlice'
 import { createDialogueCard, fetchDialogueCards } from '@/shared/state/dialogueCardsSlice'
 import { fetchModes } from '@/shared/state/modesSlice'
 import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
@@ -80,6 +81,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         dispatch(fetchViewCards(currentDashboardId))
         dispatch(fetchInputCards(currentDashboardId))
         dispatch(fetchGateCards(currentDashboardId))
+        dispatch(fetchMergeCards(currentDashboardId))
         dispatch(fetchDialogueCards(currentDashboardId))
       }
     })
@@ -174,6 +176,7 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     dispatch(fetchViewCards(dashboardId))
     dispatch(fetchInputCards(dashboardId))
     dispatch(fetchGateCards(dashboardId))
+    dispatch(fetchMergeCards(dashboardId))
     dispatch(fetchDialogueCards(dashboardId))
   }
 
@@ -567,6 +570,31 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         title="Add a dialogue card (orchestrator-driven multi-turn council)"
       >
         + Dialogue Card
+      </button>
+
+      <button
+        onClick={async () => {
+          const result = await dispatch(createMergeCard({
+            name: 'Merge',
+            template: '',
+            timeout_seconds: 60,
+            dashboard_id: currentDashboardId,
+          })).unwrap()
+          dispatch(placeCard({ sessionId: result.id, card_type: 'merge' }))
+        }}
+        style={{
+          padding: '6px 12px',
+          background: 'transparent',
+          color: '#26a69a',
+          border: '1px solid #1f4744',
+          borderRadius: 6,
+          fontWeight: 600,
+          fontSize: 13,
+          cursor: 'pointer',
+        }}
+        title="Add a merge card (joins multiple inbound edges into one composed message)"
+      >
+        + Merge Card
       </button>
 
       <button

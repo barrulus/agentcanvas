@@ -13,7 +13,7 @@ import { GROUP_LAYOUT, type GroupNodeData } from './groups'
 type CanvasState = RootState['canvas']
 
 export type CardNodeData = {
-  cardType: 'agent' | 'view' | 'input' | 'gate' | 'dialogue'
+  cardType: 'agent' | 'view' | 'input' | 'gate' | 'dialogue' | 'merge'
   collapsed: boolean
   zOrder: number
   groupId?: string
