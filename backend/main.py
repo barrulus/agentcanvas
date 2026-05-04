@@ -27,6 +27,9 @@ async def lifespan(app: FastAPI):
     gate_manager.restore_gate_cards()
     from backend.agents.merge_manager import merge_manager
     merge_manager.restore_merge_cards()
+    from backend.agents.run_manager import run_manager
+    run_manager.restore_runs()
+    run_manager.start_sweeper()
     from backend.agents.dialogue_manager import dialogue_manager
     dialogue_manager.restore_dialogue_cards()
     from backend.templates.store import seed_builtin_templates
@@ -488,6 +491,25 @@ async def reset_merge_card(card_id: str):
     return {"ok": True}
 
 
+# --- Workflow Runs ---
+
+
+@app.get("/api/dashboards/{dashboard_id}/runs")
+async def list_dashboard_runs(dashboard_id: str, limit: int = 50, offset: int = 0):
+    from backend.agents.run_manager import run_manager
+    runs = run_manager.list_runs(dashboard_id, limit=limit, offset=offset)
+    return {"runs": [r.model_dump() for r in runs], "limit": limit, "offset": offset}
+
+
+@app.get("/api/runs/{run_id}")
+async def get_run_endpoint(run_id: str):
+    from backend.agents.run_manager import run_manager
+    run = run_manager.get_run(run_id)
+    if not run:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return run.model_dump()
+
+
 # --- Dialogue Cards ---
 
 
@@ -610,8 +632,15 @@ async def send_input_card(card_id: str, request: Request):
     content = body.get("content", "")
     if not content:
         return JSONResponse({"error": "No content"}, status_code=400)
-    await input_manager.send_to_downstream(card_id, content)
-    return {"ok": True}
+    card = input_manager.get_input_card(card_id)
+    if not card or not card.dashboard_id:
+        return JSONResponse({"error": "Card not found or has no dashboard"}, status_code=404)
+    from backend.agents.run_manager import run_manager
+    run = run_manager.start_run(card.dashboard_id, "input", card_id, agent_manager)
+    run_manager.record_card_start(run.id, card_id, agent_manager)
+    run_manager.record_card_end(card_id, status="completed")
+    await input_manager.send_to_downstream(card_id, content, run_id=run.id)
+    return {"ok": True, "run_id": run.id}
 
 
 @app.post("/api/input-cards/{card_id}/webhook")
@@ -629,12 +658,18 @@ async def input_card_webhook(card_id: str, request: Request):
         content = _json.dumps(content)
     if not content:
         return JSONResponse({"error": "No content found in payload"}, status_code=400)
-    await input_manager.send_to_downstream(card_id, str(content))
+    if not card.dashboard_id:
+        return JSONResponse({"error": "Card has no dashboard"}, status_code=400)
+    from backend.agents.run_manager import run_manager
+    run = run_manager.start_run(card.dashboard_id, "webhook", card_id, agent_manager)
+    run_manager.record_card_start(run.id, card_id, agent_manager)
+    run_manager.record_card_end(card_id, status="completed")
+    await input_manager.send_to_downstream(card_id, str(content), run_id=run.id)
     await ws_manager.broadcast_dashboard(
         "input_card:triggered",
         {"card_id": card_id, "source": "webhook"},
     )
-    return {"ok": True}
+    return {"ok": True, "run_id": run.id}
 
 
 @app.post("/api/dashboards/{dashboard_id}/invoke")
@@ -684,7 +719,11 @@ async def dashboard_invoke(dashboard_id: str, request: Request):
     from backend.agents.agent_manager import register_invocation, unregister_invocation
     fut = register_invocation(output_card_id)
     try:
-        await input_manager.send_to_downstream(input_card_id, str(content))
+        from backend.agents.run_manager import run_manager
+        run = run_manager.start_run(dashboard_id, "webhook", input_card_id, agent_manager)
+        run_manager.record_card_start(run.id, input_card_id, agent_manager)
+        run_manager.record_card_end(input_card_id, status="completed")
+        await input_manager.send_to_downstream(input_card_id, str(content), run_id=run.id)
         await ws_manager.broadcast_dashboard(
             "input_card:triggered",
             {"card_id": input_card_id, "source": "invoke"},
@@ -1175,8 +1214,14 @@ async def ws_dashboard(websocket: WebSocket):
             payload = msg.get("data", {})
 
             if event == "agent:send_message":
+                target_session_id = payload["session_id"]
+                session = agent_manager.get_session(target_session_id)
+                if session and session.dashboard_id:
+                    from backend.agents.run_manager import run_manager
+                    run = run_manager.start_run(session.dashboard_id, "manual", target_session_id, agent_manager)
+                    run_manager.record_card_start(run.id, target_session_id, agent_manager)
                 await agent_manager.send_message(
-                    payload["session_id"],
+                    target_session_id,
                     payload["content"],
                 )
             elif event == "agent:stop":
@@ -1202,6 +1247,11 @@ async def ws_session(websocket: WebSocket, session_id: str):
             payload = msg.get("data", {})
 
             if event == "agent:send_message":
+                session = agent_manager.get_session(session_id)
+                if session and session.dashboard_id:
+                    from backend.agents.run_manager import run_manager
+                    run = run_manager.start_run(session.dashboard_id, "manual", session_id, agent_manager)
+                    run_manager.record_card_start(run.id, session_id, agent_manager)
                 await agent_manager.send_message(session_id, payload["content"])
             elif event == "agent:stop":
                 await agent_manager.stop_session(session_id)
