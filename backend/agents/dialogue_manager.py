@@ -120,6 +120,12 @@ class DialogueManager:
             card.status = "error"
             save_dialogue_card(card)
             await self._broadcast(card)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=getattr(card, 'error_text', None),
+            )
             return
 
         orchestrator = self._find_orchestrator(card)
@@ -128,6 +134,12 @@ class DialogueManager:
             card.status = "error"
             save_dialogue_card(card)
             await self._broadcast(card)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=getattr(card, 'error_text', None),
+            )
             return
 
         card.status = "running"
@@ -232,6 +244,12 @@ class DialogueManager:
             card.current_speaker = None
             save_dialogue_card(card)
             await self._broadcast(card)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=getattr(card, 'error_text', None),
+            )
 
             # Route downstream.
             if card.dashboard_id and card.final_output:
@@ -247,6 +265,12 @@ class DialogueManager:
             card.current_speaker = None
             save_dialogue_card(card)
             await self._broadcast(card)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=getattr(card, 'error_text', None),
+            )
 
     # --- Turn execution ---
 

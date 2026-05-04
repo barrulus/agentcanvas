@@ -102,6 +102,12 @@ class GateManager:
             logger.warning("Gate card %s missing provider/model, cannot resolve", card_id)
             card.status = "error"  # type: ignore[union-attr]
             save_gate_card(card)  # type: ignore[arg-type]
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,  # type: ignore[union-attr]
+                status=card.status,  # type: ignore[union-attr]
+                error_text="Gate resolution failed",
+            )
             return
 
         card.status = "resolving"
@@ -157,6 +163,12 @@ class GateManager:
                 "gate_card:update",
                 {"card_id": card_id, "card": card.model_dump()},
             )
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=None,
+            )
 
             # Route resolved output downstream
             from backend.agents.agent_manager import route_to_downstream
@@ -174,6 +186,12 @@ class GateManager:
             await ws_manager.broadcast_dashboard(
                 "gate_card:update",
                 {"card_id": card_id, "card": card.model_dump()},
+            )
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text="Gate resolution failed",
             )
 
     async def reset(self, card_id: str) -> None:

@@ -697,14 +697,43 @@ class AgentManager:
 
                     if event.error:
                         session.status = "error"
+                        from backend.agents.run_manager import run_manager
+                        run_manager.record_card_end(
+                            session.id,
+                            status=session.status,
+                            cost_usd=0.0,
+                            tokens=0,
+                        )
                     elif event.stop_reason == "end_turn":
                         session.status = "completed"
+                        from backend.agents.run_manager import run_manager
+                        run_manager.record_card_end(
+                            session.id,
+                            status=session.status,
+                            cost_usd=0.0,
+                            tokens=0,
+                        )
                     else:
                         session.status = "completed"
+                        from backend.agents.run_manager import run_manager
+                        run_manager.record_card_end(
+                            session.id,
+                            status=session.status,
+                            cost_usd=0.0,
+                            tokens=0,
+                        )
 
         except Exception as e:
             logger.exception("Agent error for session %s", session_id)
             session.status = "error"
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                session.id,
+                status=session.status,
+                cost_usd=0.0,
+                tokens=0,
+                error_text=str(e),
+            )
             err_msg = Message(role="system", content=f"Error: {e}")
             session.messages.append(err_msg)
             await ws_manager.send_to_session(
@@ -743,6 +772,13 @@ class AgentManager:
         provider = get_provider(session.provider_id)
         await provider.stop_session(session_id)
         session.status = "stopped"
+        from backend.agents.run_manager import run_manager
+        run_manager.record_card_end(
+            session.id,
+            status=session.status,
+            cost_usd=0.0,
+            tokens=0,
+        )
         await ws_manager.send_to_session(
             session_id,
             "agent:status",
@@ -1136,6 +1172,13 @@ class AgentManager:
             # Mark any previously-running sessions as stopped
             if session.status == "running":
                 session.status = "stopped"
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_end(
+                    session.id,
+                    status=session.status,
+                    cost_usd=0.0,
+                    tokens=0,
+                )
             self.sessions[session.id] = session
         logger.info("Restored %d sessions from disk", len(self.sessions))
 

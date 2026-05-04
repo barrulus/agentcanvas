@@ -157,6 +157,12 @@ class MergeManager:
             save_merge_card(card)
             self._cancel_timer(card_id)
             await self._broadcast(card)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card_id,
+                status=card.status,
+                error_text=card.error_text,
+            )
             return
 
         card.last_emitted_text = rendered
@@ -168,6 +174,12 @@ class MergeManager:
         save_merge_card(card)
         self._cancel_timer(card_id)
         await self._broadcast(card)
+        from backend.agents.run_manager import run_manager
+        run_manager.record_card_end(
+            card_id,
+            status=card.status,
+            error_text=card.error_text,
+        )
 
         if card.dashboard_id:
             from backend.agents.run_manager import run_manager
@@ -202,6 +214,12 @@ class MergeManager:
         card.error_text = f"Timeout after {after_s}s — missing: {', '.join(missing) or '(none)'}"
         save_merge_card(card)
         await self._broadcast(card)
+        from backend.agents.run_manager import run_manager
+        run_manager.record_card_end(
+            card_id,
+            status=card.status,
+            error_text=card.error_text,
+        )
 
     async def reset(self, card_id: str) -> None:
         card = self.cards.get(card_id)
@@ -214,6 +232,8 @@ class MergeManager:
         card.error_text = None
         save_merge_card(card)
         await self._broadcast(card)
+        from backend.agents.run_manager import run_manager
+        run_manager.record_card_end(card_id, status="stopped")
 
     async def _broadcast(self, card: MergeCard) -> None:
         await ws_manager.broadcast_dashboard(
