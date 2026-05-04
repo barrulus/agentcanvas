@@ -221,6 +221,7 @@ async def route_to_downstream(
     dashboard_id: str,
     agent_mgr: "AgentManager",
     visited: set[str] | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Route content from any card (agent or input) to downstream connected cards."""
     if visited is None:
@@ -355,6 +356,10 @@ async def route_to_downstream(
         # Target is an agent session
         target_session = agent_mgr.sessions.get(target_id)
         if target_session:
+            if run_id:
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_start(run_id, target_id, agent_mgr)
+                run_manager.record_route(run_id, conn.id, from_card_id)
             if constraints:
                 routed_text = f"[Workflow Constraints]\n{constraints}\n\n[Task]\n{routed_text}"
             await agent_mgr.send_message(target_id, routed_text)
@@ -364,6 +369,10 @@ async def route_to_downstream(
         from backend.agents.gate_manager import gate_manager
         gate_card = gate_manager.get_gate_card(target_id)
         if gate_card:
+            if run_id:
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_start(run_id, target_id, agent_mgr)
+                run_manager.record_route(run_id, conn.id, from_card_id)
             await gate_manager.receive_input(target_id, conn.id, routed_text)
             return
 
@@ -371,6 +380,10 @@ async def route_to_downstream(
         from backend.agents.dialogue_manager import dialogue_manager
         dialogue_card = dialogue_manager.get_dialogue_card(target_id)
         if dialogue_card:
+            if run_id:
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_start(run_id, target_id, agent_mgr)
+                run_manager.record_route(run_id, conn.id, from_card_id)
             await dialogue_manager.receive_input(target_id, conn.id, routed_text)
             return
 
@@ -378,6 +391,10 @@ async def route_to_downstream(
         from backend.agents.merge_manager import merge_manager
         merge_card = merge_manager.get_merge_card(target_id)
         if merge_card:
+            if run_id:
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_start(run_id, target_id, agent_mgr)
+                run_manager.record_route(run_id, conn.id, from_card_id)
             upstream_name = _resolve_card_name(from_card_id, agent_mgr)
             if upstream_name is None:
                 logger.warning("MergeCard %s: ignoring input from unnamed source %s", target_id, from_card_id)
@@ -389,6 +406,10 @@ async def route_to_downstream(
         from backend.sessions.store import load_view_card, save_view_card
         view_card = load_view_card(target_id)
         if view_card:
+            if run_id:
+                from backend.agents.run_manager import run_manager
+                run_manager.record_card_start(run_id, target_id, agent_mgr)
+                run_manager.record_route(run_id, conn.id, from_card_id)
             view_card.content = routed_text
             save_view_card(view_card)
             await ws_manager.broadcast_dashboard(
@@ -397,6 +418,8 @@ async def route_to_downstream(
             )
             # Wake any webhook callers awaiting this view card's next content
             _resolve_invocations(target_id, routed_text)
+            if run_id:
+                run_manager.record_card_end(target_id, status="completed")
 
     from backend.agents.models import Connection
     await asyncio.gather(*(_route_single(c) for c in outgoing))
@@ -1100,7 +1123,11 @@ class AgentManager:
             return
         output_text = str(assistant_msgs[-1].content)
 
-        await route_to_downstream(session_id, output_text, session.dashboard_id, self)
+        from backend.agents.run_manager import run_manager
+        await route_to_downstream(
+            session_id, output_text, session.dashboard_id, self,
+            run_id=run_manager.card_to_run_id(session_id),
+        )
 
     def restore_sessions(self) -> None:
         """Load persisted sessions from disk on startup."""

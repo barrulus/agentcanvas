@@ -83,7 +83,7 @@ class InputManager:
             cards = [c for c in cards if c.dashboard_id == dashboard_id]
         return cards
 
-    async def send_to_downstream(self, card_id: str, content: str) -> None:
+    async def send_to_downstream(self, card_id: str, content: str, run_id: str | None = None) -> None:
         """Route content from an input card to all downstream connections."""
         card = self.cards.get(card_id)
         if not card or not card.dashboard_id:
@@ -92,7 +92,7 @@ class InputManager:
         from backend.agents.agent_manager import agent_manager, clear_downstream, route_to_downstream
         # Clear all downstream agent messages and view card content before routing
         await clear_downstream(card_id, card.dashboard_id, agent_manager)
-        await route_to_downstream(card_id, content, card.dashboard_id, agent_manager)
+        await route_to_downstream(card_id, content, card.dashboard_id, agent_manager, run_id=run_id)
 
     def restore_input_cards(self) -> None:
         """Load persisted input cards from disk on startup."""

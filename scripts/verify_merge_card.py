@@ -56,7 +56,7 @@ async def run() -> int:
     ]
     routed: list[tuple[str, str]] = []
 
-    async def fake_route(from_id, content, dashboard_id, agent_mgr):
+    async def fake_route(from_id, content, dashboard_id, agent_mgr, **kwargs):
         routed.append((from_id, content))
 
     with patch("backend.agents.merge_manager.load_dashboard_connections", return_value=fake_connections), \

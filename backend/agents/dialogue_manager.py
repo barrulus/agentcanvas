@@ -236,7 +236,11 @@ class DialogueManager:
             # Route downstream.
             if card.dashboard_id and card.final_output:
                 from backend.agents.agent_manager import agent_manager, route_to_downstream
-                await route_to_downstream(card.id, card.final_output, card.dashboard_id, agent_manager)
+                from backend.agents.run_manager import run_manager
+                await route_to_downstream(
+                    card.id, card.final_output, card.dashboard_id, agent_manager,
+                    run_id=run_manager.card_to_run_id(card.id),
+                )
         except Exception:
             logger.exception("Dialogue card %s failed", card_id)
             card.status = "error"

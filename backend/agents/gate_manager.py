@@ -160,9 +160,11 @@ class GateManager:
 
             # Route resolved output downstream
             from backend.agents.agent_manager import route_to_downstream
+            from backend.agents.run_manager import run_manager
 
             await route_to_downstream(
-                card_id, card.resolved_output, card.dashboard_id, agent_manager
+                card_id, card.resolved_output, card.dashboard_id, agent_manager,
+                run_id=run_manager.card_to_run_id(card_id),
             )
         except Exception:
             logger.exception("Gate card %s resolution failed", card_id)

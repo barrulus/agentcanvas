@@ -170,7 +170,11 @@ class MergeManager:
         await self._broadcast(card)
 
         if card.dashboard_id:
-            await route_to_downstream(card_id, rendered, card.dashboard_id, agent_mgr)
+            from backend.agents.run_manager import run_manager
+            await route_to_downstream(
+                card_id, rendered, card.dashboard_id, agent_mgr,
+                run_id=run_manager.card_to_run_id(card_id),
+            )
 
     def _arm_timer(self, card_id: str) -> None:
         card = self.cards.get(card_id)
