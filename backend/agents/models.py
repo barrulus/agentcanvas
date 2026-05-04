@@ -56,7 +56,7 @@ class CardPosition(BaseModel):
     width: float = 480
     height: float = 280
     z_order: int = 0
-    card_type: Literal["agent", "view", "input", "gate", "dialogue"] = "agent"
+    card_type: Literal["agent", "view", "input", "gate", "dialogue", "merge"] = "agent"
     collapsed: bool = False
 
 

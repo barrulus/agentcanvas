@@ -144,6 +144,21 @@ class MergeManager:
 
         rendered = _apply_template_with_slots(card.template, card.slots)
 
+        # Empty rendered output would be silently dropped by _route_single — surface as error
+        # so the user sees why downstream stayed idle.
+        if not rendered.strip():
+            card.last_emitted_text = rendered
+            card.last_emitted_at = datetime.now().timestamp()
+            card.status = "error"
+            card.error_text = (
+                "Template is empty or rendered to empty string — set a template that "
+                "references your inbound slots, e.g. {{slot.<UpstreamName>}}."
+            )
+            save_merge_card(card)
+            self._cancel_timer(card_id)
+            await self._broadcast(card)
+            return
+
         card.last_emitted_text = rendered
         card.last_emitted_at = datetime.now().timestamp()
         card.status = "completed"
