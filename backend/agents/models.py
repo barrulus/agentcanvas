@@ -123,6 +123,34 @@ class MergeCard(BaseModel):
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 
 
+class CardRunRecord(BaseModel):
+    card_id: str
+    session_id: Optional[str] = None
+    card_type: Literal["agent", "gate", "dialogue", "merge", "view", "input"]
+    card_name: str
+    status: Literal["running", "completed", "error", "stopped"] = "running"
+    started_at: float
+    ended_at: Optional[float] = None
+    cost_usd: float = 0.0
+    tokens: int = 0
+    routes_taken: list[str] = Field(default_factory=list)
+    error_text: Optional[str] = None
+
+
+class WorkflowRun(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    dashboard_id: str
+    trigger: Literal["input", "webhook", "manual"]
+    trigger_card_id: str
+    trigger_card_name: str
+    started_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+    ended_at: Optional[float] = None
+    status: Literal["running", "completed", "error", "interrupted"] = "running"
+    card_runs: list[CardRunRecord] = Field(default_factory=list)
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+
+
 class DialogueParticipant(BaseModel):
     name: str
     description: str = ""  # Injected into orchestrator's roster

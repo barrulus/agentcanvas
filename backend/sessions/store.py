@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, DialogueCard, GateCard, InputCard, MergeCard, ViewCard
+from backend.agents.models import AgentSession, CardGroup, CardPosition, Connection, DialogueCard, GateCard, InputCard, MergeCard, ViewCard, WorkflowRun
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,50 @@ def load_all_merge_cards() -> list[MergeCard]:
 
 def delete_merge_card_file(card_id: str) -> None:
     path = _merge_cards_dir() / f"{card_id}.json"
+    if path.exists():
+        path.unlink()
+
+
+def _runs_dir() -> Path:
+    d = _data_dir() / "runs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def save_workflow_run(run: WorkflowRun) -> None:
+    path = _runs_dir() / f"{run.id}.json"
+    path.write_text(run.model_dump_json(indent=2))
+
+
+def load_workflow_run(run_id: str) -> WorkflowRun | None:
+    path = _runs_dir() / f"{run_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return WorkflowRun.model_validate_json(path.read_text())
+    except Exception:
+        return None
+
+
+def load_all_workflow_runs() -> list[WorkflowRun]:
+    runs: list[WorkflowRun] = []
+    for path in _runs_dir().glob("*.json"):
+        try:
+            runs.append(WorkflowRun.model_validate_json(path.read_text()))
+        except Exception:
+            continue
+    return runs
+
+
+def load_runs_for_dashboard(dashboard_id: str, limit: int = 50, offset: int = 0) -> list[WorkflowRun]:
+    """Returns runs for a dashboard, newest-first, paginated."""
+    runs = [r for r in load_all_workflow_runs() if r.dashboard_id == dashboard_id]
+    runs.sort(key=lambda r: r.started_at, reverse=True)
+    return runs[offset : offset + limit]
+
+
+def delete_workflow_run_file(run_id: str) -> None:
+    path = _runs_dir() / f"{run_id}.json"
     if path.exists():
         path.unlink()
 
