@@ -12,6 +12,8 @@ import { createDialogueCard, fetchDialogueCards } from '@/shared/state/dialogueC
 import { fetchModes } from '@/shared/state/modesSlice'
 import { fetchTemplates, PromptTemplate } from '@/shared/state/templatesSlice'
 import { wsManager } from '@/shared/ws/WebSocketManager'
+import { DashboardPicker, type DashboardNode } from './DashboardPicker'
+import { AddCardMenu, type AddCardItem } from './AddCardMenu'
 
 function renderTemplate(prompt: string, fieldValues: Record<string, string>): string {
   return prompt.replace(/\{\{(\w+)\}\}/g, (_, key) => fieldValues[key] || `{{${key}}}`)
@@ -50,7 +52,6 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null)
   const [templateFields, setTemplateFields] = useState<Record<string, string>>({})
   const templates = useSelector((s: RootState) => s.templates.templates)
-  const [showInputMenu, setShowInputMenu] = useState(false)
   const [showGateDialog, setShowGateDialog] = useState(false)
   const [gateMode, setGateMode] = useState<'resolve' | 'synthesize'>('resolve')
   const [gateProvider, setGateProvider] = useState('')
@@ -189,7 +190,6 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   }
 
   const handleCreateInputCard = async (sourceType: 'chat' | 'webhook' | 'file') => {
-    setShowInputMenu(false)
     const config: Record<string, any> = {}
     let name = 'Input'
     if (sourceType === 'file') {
@@ -239,6 +239,8 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
   }
 
   const [dashCtxMenu, setDashCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [showDashboardPicker, setShowDashboardPicker] = useState(false)
+  const [showAddMenu, setShowAddMenu] = useState(false)
 
   useEffect(() => {
     if (!dashCtxMenu) return
@@ -274,6 +276,39 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
     }
   }
 
+  const dashboardTree: DashboardNode[] = dashboards.map((d) => ({ id: d.id, name: d.name }))
+
+  const addItems: AddCardItem[] = [
+    { key: 'agent',         label: 'Agent',                hasDialog: true, onSelect: () => setShowDialog(true) },
+    { key: 'input-chat',    label: 'Chat Input',                            onSelect: () => handleCreateInputCard('chat') },
+    { key: 'input-webhook', label: 'Webhook Input',                         onSelect: () => handleCreateInputCard('webhook') },
+    { key: 'input-file',    label: 'File Watcher Input',                    onSelect: () => handleCreateInputCard('file') },
+    { key: 'view',          label: 'View Card',                             onSelect: () => handleCreateViewCard() },
+    { key: 'gate',          label: 'Gate Card',            hasDialog: true, onSelect: () => setShowGateDialog(true) },
+    {
+      key: 'dialogue',
+      label: 'Dialogue Card',
+      onSelect: async () => {
+        const result = await dispatch(createDialogueCard({
+          name: 'Dialogue', participants: [], max_turns: 20, output_mode: 'last_message',
+          dashboard_id: currentDashboardId,
+        })).unwrap()
+        dispatch(placeCard({ sessionId: result.id, card_type: 'dialogue' }))
+      },
+    },
+    {
+      key: 'merge',
+      label: 'Merge Card',
+      onSelect: async () => {
+        const result = await dispatch(createMergeCard({
+          name: 'Merge', template: '', timeout_seconds: 60,
+          dashboard_id: currentDashboardId,
+        })).unwrap()
+        dispatch(placeCard({ sessionId: result.id, card_type: 'merge' }))
+      },
+    },
+  ]
+
   return (
     <div style={{
       height: 48,
@@ -289,54 +324,18 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         AgentCanvas
       </span>
 
-      {/* Dashboard tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 12 }}>
-        {dashboards.map(db => (
-          <button
-            key={db.id}
-            onClick={() => handleSwitchDashboard(db.id)}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              // Swallow the native event so the window listener we attach while the
-              // menu is open doesn't immediately close it on a repeat right-click.
-              e.nativeEvent.stopImmediatePropagation()
-              setDashCtxMenu({ id: db.id, x: e.clientX, y: e.clientY })
-            }}
-            title="Right-click for rename / delete"
-            style={{
-              padding: '4px 10px',
-              background: 'transparent',
-              color: db.id === currentDashboardId ? '#e0e0e0' : '#666',
-              border: 'none',
-              borderBottom: db.id === currentDashboardId ? '2px solid #4fc3f7' : '2px solid transparent',
-              borderRadius: 0,
-              fontSize: 12,
-              cursor: 'pointer',
-              fontWeight: db.id === currentDashboardId ? 600 : 400,
-              transition: 'color 0.15s, border-color 0.15s',
-            }}
-          >
-            {db.name}
-          </button>
-        ))}
-        <button
-          onClick={handleNewDashboard}
-          style={{
-            padding: '4px 6px',
-            background: 'transparent',
-            color: '#555',
-            border: '1px solid #333',
-            borderRadius: 4,
-            fontSize: 12,
-            cursor: 'pointer',
-            lineHeight: 1,
-            marginLeft: 4,
-          }}
-          title="New dashboard"
-        >
-          +
-        </button>
+      {/* Dashboard picker */}
+      <div style={{ marginLeft: 12 }}>
+        <DashboardPicker
+          nodes={dashboardTree}
+          currentId={currentDashboardId}
+          open={showDashboardPicker}
+          onToggle={() => setShowDashboardPicker((v) => !v)}
+          onClose={() => setShowDashboardPicker(false)}
+          onSwitch={(id) => { handleSwitchDashboard(id); setShowDashboardPicker(false) }}
+          onNew={async () => { await handleNewDashboard(); setShowDashboardPicker(false) }}
+          onRowContextMenu={(id, x, y) => setDashCtxMenu({ id, x, y })}
+        />
       </div>
 
       <span style={{ flex: 1 }} />
@@ -470,148 +469,12 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
         )
       })()}
 
-      {/* Input Card dropdown */}
-      <div style={{ position: 'relative' }}>
-        <button
-          onClick={() => setShowInputMenu(!showInputMenu)}
-          style={{
-            padding: '6px 12px',
-            background: 'transparent',
-            color: '#4fc3f7',
-            border: '1px solid #1a4a5e',
-            borderRadius: 6,
-            fontWeight: 600,
-            fontSize: 13,
-            cursor: 'pointer',
-          }}
-          title="Add an input card (workflow entry point)"
-        >
-          + Input Card
-        </button>
-        {showInputMenu && (
-          <div
-            style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              background: '#1a1a2e', border: '1px solid #333', borderRadius: 8,
-              padding: 4, zIndex: 10000, minWidth: 160,
-            }}
-          >
-            <button onClick={() => handleCreateInputCard('chat')} style={inputMenuItemStyle}>
-              Chat Input
-              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>Manual text entry</span>
-            </button>
-            <button onClick={() => handleCreateInputCard('webhook')} style={inputMenuItemStyle}>
-              Webhook
-              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>HTTP POST endpoint</span>
-            </button>
-            <button onClick={() => handleCreateInputCard('file')} style={inputMenuItemStyle}>
-              File Watcher
-              <span style={{ color: '#555', fontSize: 10, display: 'block' }}>Watch file for changes</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      <button
-        onClick={handleCreateViewCard}
-        style={{
-          padding: '6px 12px',
-          background: 'transparent',
-          color: '#b39ddb',
-          border: '1px solid #4a3a66',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-        title="Add a view/output card"
-      >
-        + View Card
-      </button>
-
-      <button
-        onClick={() => setShowGateDialog(true)}
-        style={{
-          padding: '6px 12px',
-          background: 'transparent',
-          color: '#ff9800',
-          border: '1px solid #6b4000',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-        title="Add a gate/arbiter card (collects and resolves multiple inputs)"
-      >
-        + Gate Card
-      </button>
-
-      <button
-        onClick={async () => {
-          const result = await dispatch(createDialogueCard({
-            name: 'Dialogue',
-            participants: [],
-            max_turns: 20,
-            output_mode: 'last_message',
-            dashboard_id: currentDashboardId,
-          })).unwrap()
-          dispatch(placeCard({ sessionId: result.id, card_type: 'dialogue' }))
-        }}
-        style={{
-          padding: '6px 12px',
-          background: 'transparent',
-          color: '#ba68c8',
-          border: '1px solid #4a2a5a',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-        title="Add a dialogue card (orchestrator-driven multi-turn council)"
-      >
-        + Dialogue Card
-      </button>
-
-      <button
-        onClick={async () => {
-          const result = await dispatch(createMergeCard({
-            name: 'Merge',
-            template: '',
-            timeout_seconds: 60,
-            dashboard_id: currentDashboardId,
-          })).unwrap()
-          dispatch(placeCard({ sessionId: result.id, card_type: 'merge' }))
-        }}
-        style={{
-          padding: '6px 12px',
-          background: 'transparent',
-          color: '#26a69a',
-          border: '1px solid #1f4744',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-        title="Add a merge card (joins multiple inbound edges into one composed message)"
-      >
-        + Merge Card
-      </button>
-
-      <button
-        onClick={() => setShowDialog(true)}
-        style={{
-          padding: '6px 16px',
-          background: '#4fc3f7',
-          color: '#000',
-          border: 'none',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-      >
-        + New Agent
-      </button>
+      <AddCardMenu
+        items={addItems}
+        open={showAddMenu}
+        onToggle={() => setShowAddMenu((v) => !v)}
+        onClose={() => setShowAddMenu(false)}
+      />
 
       {/* Gate Card dialog */}
       {showGateDialog && (
@@ -1042,12 +905,6 @@ export function Toolbar({ onOpenSettings, onOpenHistory, onOpenTemplates, showDi
 }
 
 const dashCtxItemStyle: React.CSSProperties = {
-  display: 'block', width: '100%', padding: '6px 12px',
-  background: 'transparent', color: '#ccc', border: 'none',
-  fontSize: 12, cursor: 'pointer', textAlign: 'left', borderRadius: 4,
-}
-
-const inputMenuItemStyle: React.CSSProperties = {
   display: 'block', width: '100%', padding: '6px 12px',
   background: 'transparent', color: '#ccc', border: 'none',
   fontSize: 12, cursor: 'pointer', textAlign: 'left', borderRadius: 4,
