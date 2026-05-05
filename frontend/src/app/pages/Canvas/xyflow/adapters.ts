@@ -223,17 +223,15 @@ export function selectEdges(state: CanvasState, activeRun?: WorkflowRun | null):
 export function applyNodesChange(dispatch: Dispatch, changes: NodeChange[]): void {
   const positionEnds: Array<{ id: string; x: number; y: number }> = []
   const removed: string[] = []
-  let selectionChanged = false
-  let nextSelected: string[] | null = null
 
   for (const change of changes) {
     if (change.type === 'position' && change.dragging === false && change.position) {
       positionEnds.push({ id: change.id, x: change.position.x, y: change.position.y })
     } else if (change.type === 'remove') {
       removed.push(change.id)
-    } else if (change.type === 'select') {
-      selectionChanged = true
     }
+    // 'select' changes are handled via ReactFlow's onSelectionChange callback,
+    // which delivers the full current selection rather than per-frame deltas.
   }
 
   if (positionEnds.length === 1) {
@@ -246,13 +244,6 @@ export function applyNodesChange(dispatch: Dispatch, changes: NodeChange[]): voi
   }
 
   for (const id of removed) dispatch(removeCard(id))
-
-  if (selectionChanged) {
-    nextSelected = changes
-      .filter((c) => c.type === 'select' && c.selected)
-      .map((c) => (c as Extract<NodeChange, { type: 'select' }>).id)
-    if (nextSelected) dispatch(setSelected(nextSelected))
-  }
 }
 
 export function applyEdgesChange(dispatch: Dispatch, changes: EdgeChange[]): void {

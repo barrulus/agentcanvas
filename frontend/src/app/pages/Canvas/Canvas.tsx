@@ -34,6 +34,7 @@ import {
   applyEdgesChange,
   onConnect as adapterOnConnect,
   onReconnect as adapterOnReconnect,
+  onSelectionChange as adapterOnSelectionChange,
 } from './xyflow/adapters'
 
 function CanvasInner() {
@@ -135,6 +136,10 @@ function CanvasInner() {
     if (selectedCards.length > 0) dispatch(setSelected([]))
     setContextMenu(null)
   }, [selectedCards.length, dispatch])
+  const onSelectionChange = useCallback(
+    (params: { nodes: { id: string }[] }) => adapterOnSelectionChange(dispatch, params as any),
+    [dispatch],
+  )
 
   const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: { id: string }) => {
     e.preventDefault()
@@ -196,6 +201,7 @@ function CanvasInner() {
         onConnect={onConnect}
         onReconnect={onReconnect}
         onPaneClick={onPaneClick}
+        onSelectionChange={onSelectionChange}
         onEdgeContextMenu={onEdgeContextMenu}
         panOnScroll
         panOnScrollSpeed={prefs.zoomSensitivity}
