@@ -81,6 +81,19 @@ function RunRow({ run, isActive, onClick }: {
             background: STATUS_COLORS[run.status],
             flexShrink: 0,
           }} />
+          <span style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: 0.4,
+            color: STATUS_COLORS[run.status],
+            padding: '1px 6px',
+            border: `1px solid ${STATUS_COLORS[run.status]}`,
+            borderRadius: 4,
+            flexShrink: 0,
+          }}>
+            {run.status}
+          </span>
           <span style={{ fontSize: 12, color: '#aaa', flex: 1 }}>
             {relativeTime(run.started_at)} · {run.trigger} · {formatDuration(duration)} · ${run.total_cost_usd.toFixed(3)}
           </span>
