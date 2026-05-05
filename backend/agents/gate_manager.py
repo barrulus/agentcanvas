@@ -201,6 +201,10 @@ class GateManager:
             card.resolved_output = ""
             card.status = "idle"
             save_gate_card(card)
+            # Release any in-flight run refcount so the run can close
+            # instead of leaking until the 1h sweep.
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(card_id, status="stopped")
             await ws_manager.broadcast_dashboard(
                 "gate_card:update",
                 {"card_id": card_id, "card": card.model_dump()},
