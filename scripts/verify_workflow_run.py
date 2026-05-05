@@ -169,6 +169,42 @@ async def run() -> int:
             print(f"    status={run3.status} ended_at={run3.ended_at} in_flight={run_manager._in_flight.get(run3.id)} card_to_run_a1={run_manager._card_to_run.get('a1')}")
         failures += int(not ok)
 
+        # ── Test 9: chained run — route before end keeps run alive ──────────
+        # Simulates: trigger → record_card_start(input) → route_to_downstream
+        # tracks downstream card → record_card_end(input). Run must not close early.
+        chain_name_map = {"input1": "InputCard", "agent2": "AgentCard"}
+        chain_type_map = {"input1": "input", "agent2": "agent"}
+        with patch("backend.agents.agent_manager._resolve_card_name",
+                   side_effect=lambda cid, _: chain_name_map.get(cid)), \
+             patch.object(run_manager, "_resolve_card_type",
+                          side_effect=lambda cid, _: chain_type_map.get(cid)):
+            fresh_run = run_manager.start_run("test_dash_chain", "input", "input1", fake_mgr)
+            run_manager.record_card_start(fresh_run.id, "input1", fake_mgr)
+            await asyncio.sleep(0)
+            # Simulate route_to_downstream: downstream card starts BEFORE input ends
+            run_manager.record_card_start(fresh_run.id, "agent2", fake_mgr)
+            await asyncio.sleep(0)
+            run_manager.record_card_end("input1", status="completed")
+            await asyncio.sleep(0)
+            # Run should still be running because agent2 is in_flight
+            ok = fresh_run.status == "running" and "agent2" in run_manager._in_flight.get(fresh_run.id, set())
+            print(f"[{'PASS' if ok else 'FAIL'}] chain — input ends, agent still running keeps run alive")
+            if not ok:
+                print(f"    status={fresh_run.status} in_flight={run_manager._in_flight.get(fresh_run.id)}")
+            failures += int(not ok)
+            run_manager.record_card_end("agent2", status="completed")
+            await asyncio.sleep(0)
+            # Now the run closes
+            ok = fresh_run.status == "completed"
+            print(f"[{'PASS' if ok else 'FAIL'}] chain — final card end closes the run")
+            if not ok:
+                print(f"    status={fresh_run.status}")
+            failures += int(not ok)
+            try:
+                delete_workflow_run_file(fresh_run.id)
+            except Exception:
+                pass
+
     # Cleanup
     for r in [run, run2, run3]:
         try:

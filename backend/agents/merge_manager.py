@@ -174,12 +174,6 @@ class MergeManager:
         save_merge_card(card)
         self._cancel_timer(card_id)
         await self._broadcast(card)
-        from backend.agents.run_manager import run_manager
-        run_manager.record_card_end(
-            card_id,
-            status=card.status,
-            error_text=card.error_text,
-        )
 
         if card.dashboard_id:
             from backend.agents.run_manager import run_manager
@@ -187,6 +181,12 @@ class MergeManager:
                 card_id, rendered, card.dashboard_id, agent_mgr,
                 run_id=run_manager.card_to_run_id(card_id),
             )
+        from backend.agents.run_manager import run_manager
+        run_manager.record_card_end(
+            card_id,
+            status=card.status,
+            error_text=card.error_text,
+        )
 
     def _arm_timer(self, card_id: str) -> None:
         card = self.cards.get(card_id)

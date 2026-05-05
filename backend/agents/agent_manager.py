@@ -706,22 +706,8 @@ class AgentManager:
                         )
                     elif event.stop_reason == "end_turn":
                         session.status = "completed"
-                        from backend.agents.run_manager import run_manager
-                        run_manager.record_card_end(
-                            session.id,
-                            status=session.status,
-                            cost_usd=0.0,
-                            tokens=0,
-                        )
                     else:
                         session.status = "completed"
-                        from backend.agents.run_manager import run_manager
-                        run_manager.record_card_end(
-                            session.id,
-                            status=session.status,
-                            cost_usd=0.0,
-                            tokens=0,
-                        )
 
         except Exception as e:
             logger.exception("Agent error for session %s", session_id)
@@ -753,12 +739,19 @@ class AgentManager:
             },
         )
 
-        # Route output to downstream connected cards
+        # Route output to downstream connected cards, then record end
         if session.status == "completed":
             try:
                 await self._route_output(session_id)
             except Exception:
                 logger.exception("Failed to route output for session %s", session_id)
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                session.id,
+                status=session.status,
+                cost_usd=0.0,
+                tokens=0,
+            )
 
     async def stop_session(self, session_id: str) -> None:
         session = self.sessions.get(session_id)

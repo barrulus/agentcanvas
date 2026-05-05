@@ -244,14 +244,8 @@ class DialogueManager:
             card.current_speaker = None
             save_dialogue_card(card)
             await self._broadcast(card)
-            from backend.agents.run_manager import run_manager
-            run_manager.record_card_end(
-                card.id,
-                status=card.status,
-                error_text=getattr(card, 'error_text', None),
-            )
 
-            # Route downstream.
+            # Route downstream, then record end.
             if card.dashboard_id and card.final_output:
                 from backend.agents.agent_manager import agent_manager, route_to_downstream
                 from backend.agents.run_manager import run_manager
@@ -259,6 +253,12 @@ class DialogueManager:
                     card.id, card.final_output, card.dashboard_id, agent_manager,
                     run_id=run_manager.card_to_run_id(card.id),
                 )
+            from backend.agents.run_manager import run_manager
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=getattr(card, 'error_text', None),
+            )
         except Exception:
             logger.exception("Dialogue card %s failed", card_id)
             card.status = "error"

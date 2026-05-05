@@ -163,20 +163,19 @@ class GateManager:
                 "gate_card:update",
                 {"card_id": card_id, "card": card.model_dump()},
             )
-            from backend.agents.run_manager import run_manager
-            run_manager.record_card_end(
-                card.id,
-                status=card.status,
-                error_text=None,
-            )
 
-            # Route resolved output downstream
+            # Route resolved output downstream, then record end
             from backend.agents.agent_manager import route_to_downstream
             from backend.agents.run_manager import run_manager
 
             await route_to_downstream(
                 card_id, card.resolved_output, card.dashboard_id, agent_manager,
                 run_id=run_manager.card_to_run_id(card_id),
+            )
+            run_manager.record_card_end(
+                card.id,
+                status=card.status,
+                error_text=None,
             )
         except Exception:
             logger.exception("Gate card %s resolution failed", card_id)

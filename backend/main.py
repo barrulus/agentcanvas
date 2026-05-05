@@ -638,8 +638,8 @@ async def send_input_card(card_id: str, request: Request):
     from backend.agents.run_manager import run_manager
     run = run_manager.start_run(card.dashboard_id, "input", card_id, agent_manager)
     run_manager.record_card_start(run.id, card_id, agent_manager)
-    run_manager.record_card_end(card_id, status="completed")
     await input_manager.send_to_downstream(card_id, content, run_id=run.id)
+    run_manager.record_card_end(card_id, status="completed")
     return {"ok": True, "run_id": run.id}
 
 
@@ -663,8 +663,8 @@ async def input_card_webhook(card_id: str, request: Request):
     from backend.agents.run_manager import run_manager
     run = run_manager.start_run(card.dashboard_id, "webhook", card_id, agent_manager)
     run_manager.record_card_start(run.id, card_id, agent_manager)
-    run_manager.record_card_end(card_id, status="completed")
     await input_manager.send_to_downstream(card_id, str(content), run_id=run.id)
+    run_manager.record_card_end(card_id, status="completed")
     await ws_manager.broadcast_dashboard(
         "input_card:triggered",
         {"card_id": card_id, "source": "webhook"},
@@ -722,8 +722,8 @@ async def dashboard_invoke(dashboard_id: str, request: Request):
         from backend.agents.run_manager import run_manager
         run = run_manager.start_run(dashboard_id, "webhook", input_card_id, agent_manager)
         run_manager.record_card_start(run.id, input_card_id, agent_manager)
-        run_manager.record_card_end(input_card_id, status="completed")
         await input_manager.send_to_downstream(input_card_id, str(content), run_id=run.id)
+        run_manager.record_card_end(input_card_id, status="completed")
         await ws_manager.broadcast_dashboard(
             "input_card:triggered",
             {"card_id": input_card_id, "source": "invoke"},
