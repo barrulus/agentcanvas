@@ -145,7 +145,7 @@ class WorkflowRun(BaseModel):
     trigger_card_name: str
     started_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     ended_at: Optional[float] = None
-    status: Literal["running", "completed", "error", "interrupted"] = "running"
+    status: Literal["running", "completed", "error", "interrupted", "stopped"] = "running"
     card_runs: list[CardRunRecord] = Field(default_factory=list)
     total_cost_usd: float = 0.0
     total_tokens: int = 0

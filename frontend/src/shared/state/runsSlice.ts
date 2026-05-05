@@ -22,7 +22,7 @@ export interface WorkflowRun {
   trigger_card_name: string
   started_at: number
   ended_at: number | null
-  status: 'running' | 'completed' | 'error' | 'interrupted'
+  status: 'running' | 'completed' | 'error' | 'interrupted' | 'stopped'
   card_runs: CardRunRecord[]
   total_cost_usd: number
   total_tokens: number

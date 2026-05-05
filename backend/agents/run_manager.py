@@ -192,7 +192,13 @@ class RunManager:
     def _close_run(self, run: WorkflowRun) -> None:
         run.ended_at = datetime.now().timestamp()
         any_error = any(cr.status == "error" for cr in run.card_runs)
-        run.status = "error" if any_error else "completed"
+        any_stopped = any(cr.status == "stopped" for cr in run.card_runs)
+        if any_error:
+            run.status = "error"
+        elif any_stopped:
+            run.status = "stopped"
+        else:
+            run.status = "completed"
         save_workflow_run(run)
         self._in_flight.pop(run.id, None)
         asyncio.create_task(self._broadcast(run))

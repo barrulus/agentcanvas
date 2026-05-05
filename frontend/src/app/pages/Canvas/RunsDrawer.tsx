@@ -33,6 +33,7 @@ const STATUS_COLORS: Record<WorkflowRun['status'], string> = {
   completed: '#66bb6a',
   error: '#ef5350',
   interrupted: '#888',
+  stopped: '#ffa726',
 }
 
 const CARD_STATUS_COLORS: Record<CardRunRecord['status'], string> = {

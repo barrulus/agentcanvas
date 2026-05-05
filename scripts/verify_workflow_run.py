@@ -22,8 +22,16 @@ async def run() -> int:
     failures = 0
     fake_mgr = FakeAgentMgr()
 
-    name_map = {"a1": "Alice", "a2": "Bob", "t1": "Trigger"}
-    type_map = {"a1": "agent", "a2": "agent", "t1": "agent"}
+    name_map = {
+        "a1": "Alice", "a2": "Bob", "t1": "Trigger",
+        "s1": "Stop1", "s2": "Stop2",
+        "es1": "ErrStop1", "es2": "ErrStop2",
+    }
+    type_map = {
+        "a1": "agent", "a2": "agent", "t1": "agent",
+        "s1": "agent", "s2": "agent",
+        "es1": "agent", "es2": "agent",
+    }
 
     with patch("backend.agents.agent_manager._resolve_card_name",
                side_effect=lambda cid, _: name_map.get(cid)), \
@@ -145,6 +153,46 @@ async def run() -> int:
         print(f"[{'PASS' if ok else 'FAIL'}] record_card_end with error — run closes as error when any card errored")
         if not ok:
             print(f"    status={run2.status} ended_at={run2.ended_at}")
+        failures += int(not ok)
+
+        # ── Test 7b: stopped card → run rolls up as 'stopped' ───────────────
+        run_stop = run_manager.start_run(
+            dashboard_id="dash1",
+            trigger="manual",
+            trigger_card_id="t1",
+            agent_mgr=fake_mgr,  # type: ignore[arg-type]
+        )
+        run_manager.record_card_start(run_stop.id, "s1", fake_mgr)  # type: ignore[arg-type]
+        run_manager.record_card_start(run_stop.id, "s2", fake_mgr)  # type: ignore[arg-type]
+        await asyncio.sleep(0)
+        run_manager.record_card_end("s1", "stopped")
+        await asyncio.sleep(0)
+        run_manager.record_card_end("s2", "completed")
+        await asyncio.sleep(0)
+        ok = run_stop.status == "stopped"
+        print(f"[{'PASS' if ok else 'FAIL'}] stopped card — run rolls up as 'stopped' when no errors")
+        if not ok:
+            print(f"    status={run_stop.status}")
+        failures += int(not ok)
+
+        # ── Test 7c: error trumps stopped in run rollup ─────────────────────
+        run_es = run_manager.start_run(
+            dashboard_id="dash1",
+            trigger="manual",
+            trigger_card_id="t1",
+            agent_mgr=fake_mgr,  # type: ignore[arg-type]
+        )
+        run_manager.record_card_start(run_es.id, "es1", fake_mgr)  # type: ignore[arg-type]
+        run_manager.record_card_start(run_es.id, "es2", fake_mgr)  # type: ignore[arg-type]
+        await asyncio.sleep(0)
+        run_manager.record_card_end("es1", "stopped")
+        await asyncio.sleep(0)
+        run_manager.record_card_end("es2", "error", error_text="boom")
+        await asyncio.sleep(0)
+        ok = run_es.status == "error"
+        print(f"[{'PASS' if ok else 'FAIL'}] error trumps stopped in run rollup")
+        if not ok:
+            print(f"    status={run_es.status}")
         failures += int(not ok)
 
         # ── Test 8: _force_close ─────────────────────────────────────────────
